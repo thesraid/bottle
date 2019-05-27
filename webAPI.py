@@ -90,7 +90,7 @@ def dbOutput(pageName="none"):
       #else:
       #  try:
       #    collection = jsonIn.get("collection")
-      #print ("SETTING COLLECTION FROM JSON INPUT")
+      # Warnings from VSCode here can be ignored
       collection = jsonIn['collection']
     except Exception as e:
       #print(str(e))
