@@ -4,6 +4,14 @@
 
 <div align="left">
 
+<button onclick="goBack()">Go Back</button>
+
+<script>
+function goBack() {
+  window.history.back();
+}
+</script>
+
 % id = Output.get("_id")
 % sub = Output.get("subOrgName")
 

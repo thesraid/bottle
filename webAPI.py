@@ -94,14 +94,14 @@ def dbOutput(pageName="none"):
       collection = jsonIn['collection']
     except Exception as e:
       #print(str(e))
-      return {"error" : "Empty or invalid request {'collection' : 'name'} required"}
+      return {"error" : "Empty or invalid request {'collection' : 'name'} required. Valid names are archivedJobs, courses, failedJobs, scheduledJobs, subOrgs and tasks"}
   else:
     collection = pageName
 
   
   if not collection:
     #print("Invalid request {'_id' : 'jobID'} expected")
-    return {"error" : "Empty or invalid request {'collection' : 'name'} required"}
+    return {"error" : "Empty or invalid request {'collection' : 'name'} required. Valid names are archivedJobs, courses, failedJobs, scheduledJobs, subOrgs and tasks"}
   
   # mongo connection
   try:
@@ -129,7 +129,7 @@ def dbOutput(pageName="none"):
   elif collection == "courses":
     dbOutput=list(mongodb.courses.find())
   else:
-    return {"error" : "Unknown collection {}".format(collection)}
+    return {"error" : "Unknown collection {}. Valid names are archivedJobs, courses, failedJobs, scheduledJobs, subOrgs and tasks".format(collection)}
 
   #print(dbOutput)
   # Close the Database connection
@@ -205,7 +205,7 @@ def deleteEntry(passIn="none"):
         for x in dbOutput:
           tagName = x['tag']
           jobStatus = x['jobStatus']
-          if (jobStatus != "pending") or (jobStatus != "failed") or (jobStatus != "finished"):
+          if (jobStatus != "pending") and (jobStatus != "failed") and (jobStatus != "finished"):
             return {"error" : "Cannot delete a running job"}
         mongodb.scheduledJobs.delete_one(myquery)
         #print ("Job deleted from scheduledJobs")
