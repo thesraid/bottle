@@ -53,6 +53,8 @@
 % for org in doc[k]:
  :&nbsp; <a href="../viewSubOrg/subOrgName/{{org}}"><b>{{org}}</b></a><br/>
 % end
+%   elif (k == "finishDate") and (pageName == "scheduledJobs"):
+       {{k}} : {{v}} <a href="/extendJob/{{jobId}}" title="This will disable the suspending of labs"> Extend by 3 hours</a><br/> 
 %    else:
        {{k}} : {{v}}<br/>
 %    end                                     #if k end 3

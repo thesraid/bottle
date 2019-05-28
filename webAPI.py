@@ -24,6 +24,7 @@ import requests
 #from bson.json_util import loads, dumps
 from bson import ObjectId, errors
 from json import dumps
+from datetime import datetime, timedelta
 
 
 app = application = bottle.Bottle()
@@ -147,13 +148,19 @@ def deleteEntry(passIn="none"):
   # Set the output type to json as the REST API accepts json in and sends JSON out.
   setContentType("json")
   
-  # Check to see if we have received a variable directly (someone in this .py called the function)
-  # If not then some one external made a REST API call to this function
-  if passIn == "none":
-    # Pulls in the full json sent to the endpoint
-    jsonIn = request.json
-  else:
-    jsonIn = passIn
+  
+  try:
+    # Check to see if we have received a variable directly (someone in this .py called the function)
+    # If not then some one external made a REST API call to this function
+    if passIn == "none":
+      # Pulls in the full json sent to the endpoint
+      jsonIn = request.json
+    else:
+      jsonIn = passIn
+  except Exception:
+    # logging
+    #print("Failed to establish connection with mongo: {}".format(str(e)))
+    return {"error" : "Empty or invalid request {'_id' : 'jobID'} required"}
 
 
   # Verifies that JSON is present and contains an _id option
@@ -501,6 +508,108 @@ def freeSubOrg(passIn="none"):
   # Send the success reply to the sender 
   return dumps(output, indent=4, sort_keys=True, default=str)
 
+# ----------------
+# Delete an entry from a jobs collection in the database
+# ----------------
+@app.post('/api/extendJob')
+def extendEntry(passIn="none"):
+
+  # Set the output type to json as the REST API accepts json in and sends JSON out.
+  setContentType("json")
+  
+  try:
+    # Check to see if we have received a variable directly (someone in this .py called the function)
+    # If not then some one external made a REST API call to this function
+    if passIn == "none":
+      # Pulls in the full json sent to the endpoint
+      jsonIn = request.json
+    else:
+      jsonIn = passIn
+  except Exception:
+    # logging
+    #print("Failed to establish connection with mongo: {}".format(str(e)))
+    return {"error" : "Empty or invalid request {'_id' : 'jobID'} required"}
+
+
+  # Verifies that JSON is present and contains an _id option
+  if not jsonIn:
+    #print("Empty or invalid request _id required")
+    return {"error" : "Empty or invalid request {'_id' : 'jobID'} required"}
+  else:
+    try:
+      _id = jsonIn.get("_id")
+    except Exception as e:
+      #print(str(e))
+      return {"error" : str(e)}
+  
+  if not _id:
+    #print("Invalid request {'_id' : 'jobID'} expected")
+    return {"error" : "Invalid request {'_id' : 'jobID'} expected"}
+
+  # mongo connection
+  try:
+    #print ("Connecting to DB....")
+    # setting up the mongo client
+    mongoClient = pymongo.MongoClient()
+    # specifying the mongo database = 'boruDB'
+    mongodb = mongoClient.boruDB
+  except Exception as e:
+    # logging
+    #print("Failed to establish connection with mongo: {}".format(str(e)))
+    return {"error" : "Failed to establish connection with mongo: {}".format(str(e))}
+
+  # Take the _id received from the sender as a string (embedded in json) and convert to a Mongo Cursor object. 
+  # Create a query to find the _id in the database with the string provided by the sender.
+  try:
+    myquery = { "_id": ObjectId(_id) }
+  except Exception as e:
+    # logging
+    #print(str(e))
+    return {"error" : (str(e))}
+  
+  # Find the job using the supplied _id to make sure that it exists and then to delete it
+  try:
+    dbOutput = list(mongodb.scheduledJobs.find(myquery))
+    if dbOutput != []:
+      for x in dbOutput:
+        tagName = x['tag']
+        jobStatus = x['jobStatus']
+        
+        
+        # If the job is suspended grab the next unsuspend date
+        # Remove all suspended and unsuspend dates
+        # Replace unsuspend with saved date from before. 
+        if (jobStatus == "suspended"):
+          newResumeList = [(min(x['listOfResumeTimes']))]
+        else:
+          newResumeList = []
+
+        mongodb.scheduledJobs.find_and_modify(myquery,{"$set": {"listOfResumeTimes": newResumeList}}, upsert=False )
+        mongodb.scheduledJobs.find_and_modify(myquery,{"$set": {"listOfSuspendTimes": []}}, upsert=False )
+
+
+        # Extend the finish date by 3 hours. 
+        #mongodb.scheduledJobs.delete_one(myquery)
+        newdate = (x['finishDate'] + timedelta(hours=2))
+        # Update the finish date in the database for this job
+        mongodb.scheduledJobs.find_and_modify(myquery,{"$set": {"finishDate": newdate}} )
+    else:
+      # Close the database 
+      mongoClient.close()
+      return {"error" : "Job not found"}
+
+  except Exception as e:
+    #print("Error: {}".format(str(e)))
+    return {"error" : "{}".format(str(e))}
+  
+  # Close the database 
+  mongoClient.close()
+
+  # Send the success reply to the sender 
+  updateEntry = { "NewFinishTime" : newdate, "_id" : _id }
+  return dumps(updateEntry, indent=4, sort_keys=True, default=str)
+
+
 
 '''
 ██╗    ██╗███████╗██████╗ 
@@ -694,6 +803,34 @@ def readySubOrg(key, value):
 
   # Query dbOutput with no parameters and send output to viewJobs.tpl
   return template('readySubOrg', Output=Output)
+
+
+# ----------------
+# Extend Job in the Database
+# ----------------
+@app.route('/extendJob/<jobId>')
+def extendJob(jobId):
+  
+  jobJSON = {"_id": jobId}
+  #print(type(jobJSON))sch
+  output = extendEntry(jobJSON)
+
+  if ((type(output) is dict)):
+    if (output['error']):
+      #print ("ERROR - EXIT", output['error'])
+      # Set content type to HTML before returning it
+      # This has to be set before the return as calling the REST API sets content_type to json
+      setContentType("html")
+      return template('error', error=output['error'])
+    #else:
+    #  Output = json.loads(output)
+    
+  # Set content type to HTML before returning it
+  # This has to be set at the end of this module as calling the REST API sets content_type to json
+  setContentType("html")
+
+  # Send output to extendJob.tpl
+  return template('extendJob', jobId=output)
 
 
 #---------------------------------------------------------------------------------------------------
