@@ -35,9 +35,11 @@
 
 %import json
 %delete = False
+% # Cycle through the json file as in comes in as a list
 %for doc in dbOutput:                   # for jsonOutput 1
 % heading = doc['tag']
 % jobId = doc['_id']
+% # Only show the delete link for jobs that are pending, failed or finished
 % if (doc['jobStatus'] == "pending") or (doc['jobStatus'] == "failed") or (doc['jobStatus'] == "finished"):
 %   delete = True
 % end
@@ -46,20 +48,31 @@
 <div class="content" align="left">
 
 %  for k, v in sorted(doc.items()):              # for doc 2
+% # If the key is _id then ad a link to the job page for that ID
 %    if (k == "_id"):      # if k 3
       <a href="../viewJob/{{jobId}}"><b>{{k}} : {{v}} </b></a><br/>
+%
+% # If the key is subOrgs then add a link to the subOrg page
 %    elif (k == "subOrgs"):
 {{k}} : </br>
 % for org in doc[k]:
  :&nbsp; <a href="../viewSubOrg/subOrgName/{{org}}"><b>{{org}}</b></a><br/>
 % end
+% # If the key is FailedSubOrgs then add a link to the subOrg page
+%    elif (k == "failedSubOrgs"):
+{{k}} : </br>
+% for org in doc[k]:
+ :&nbsp; <a href="../viewSubOrg/subOrgName/{{org}}"><b>{{org}}</b></a><br/>
+% end
+% # If the key is finsihed Date and it's in the scheduled Jobs page then add an option to extend the labs
 %   elif (k == "finishDate") and (pageName == "scheduledJobs"):
-       {{k}} : {{v}} <a href="/extendJob/{{jobId}}" title="This will disable the suspending of labs"> Extend by 3 hours</a><br/> 
+       {{k}} : {{v}} <a href="/extendJob/{{jobId}}" title="This will disable the suspending of labs">Extend by 3 hours</a><br/> 
 %    else:
        {{k}} : {{v}}<br/>
 %    end                                     #if k end 3
 
 %  end                                   # end for doc 2
+% # If the variable delete is true this indicates that this job can be deleted. 
 % if delete:
    <a href="../deleteJob/{{jobId}}" style="color: rgb(255,0,0)">Delete</a>
 % end
@@ -69,6 +82,7 @@
     </p>
   </div>
 
+<!-- Script for collapsing the entries -->
 <script>
 var coll = document.getElementsByClassName("collapsible");
 var i;
