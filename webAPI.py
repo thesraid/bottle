@@ -605,13 +605,12 @@ def extendEntry(passIn="none"):
         # Remove all suspended and unsuspend dates
         # Replace unsuspend with saved date from before. 
         if (jobStatus == "suspended"):
-          logging.warning("Extending finish date of suspended job " + _id + ". Job will be resumed at " + min(x['listOfResumeTimes']))
-          newResumeList = [(min(x['listOfResumeTimes']))]
+          logging.warning("Extending finish date of suspended job " + _id + ". Job will be resumed at " + str((x['listOfResumeTimes'])[0]))
+          newResumeList = [(x['listOfResumeTimes'])[0]]
         else:
           logging.warning("Extending finish date of " + jobStatus + " job with the ID " + _id)
           newResumeList = []
 
-        logging.warning("Updating ")
         mongodb.scheduledJobs.find_and_modify(myquery,{"$set": {"listOfResumeTimes": newResumeList}}, upsert=False )
         mongodb.scheduledJobs.find_and_modify(myquery,{"$set": {"listOfSuspendTimes": []}}, upsert=False )
 

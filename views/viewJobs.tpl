@@ -34,20 +34,23 @@
 
 
 %import json
-%delete = False
 % # Cycle through the json file as in comes in as a list
 %for doc in dbOutput:                   # for jsonOutput 1
-% heading = doc['tag']
+% heading = ((doc['startDate'])[:-9] + " | " + doc['course'] + " | " + doc['tag'] + " | " + doc['jobStatus'])
 % jobId = doc['_id']
-% # Only show the delete link for jobs that are pending, failed or finished
-% if (doc['jobStatus'] == "pending") or (doc['jobStatus'] == "failed") or (doc['jobStatus'] == "finished"):
-%   delete = True
-% end
+
 
 <button class="collapsible">{{heading}}</button>
 <div class="content" align="left">
 
 %  for k, v in sorted(doc.items()):              # for doc 2
+% delete = False
+
+% # Only show the delete link for jobs that are pending, failed or finished
+% if (doc['jobStatus'] == "pending") or (doc['jobStatus'] == "failed") or (doc['jobStatus'] == "finished"):
+%   delete = True
+% end
+
 % # If the key is _id then ad a link to the job page for that ID
 %    if (k == "_id"):      # if k 3
       <a href="../viewJob/{{jobId}}"><b>{{k}} : {{v}} </b></a><br/>
