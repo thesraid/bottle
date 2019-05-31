@@ -4,7 +4,7 @@
 <head>
     <style>
 html {
-    text-align: center;
+    text-align: left;
     font-family: 'Roboto', sans-serif;
 }
 .footer {
@@ -14,7 +14,7 @@ html {
     width: 100%;
     background-color: #63AE45;
     color: white;
-    text-align: center;
+    text-align: left;
 }
 ul {
   list-style-type: none;
@@ -32,7 +32,7 @@ li {
 li a {
   display: block;
   color: white;
-  text-align: center;
+  text-align: left;
   padding: 14px 16px;
   text-decoration: none;
 }
@@ -50,6 +50,7 @@ li a:hover:not(.active) {
         <li><a href="/viewJobs/scheduledJobs">Scheduled Jobs</a></li>
         <li><a href="/viewJobs/archivedJobs">Archived Jobs</a></li>
         <li><a href="/viewSubOrgs">SubOrgs</a></li>
+        <li><a href="/scheduleClass">Schedule Class</a></li>
     </ul>
     <br><br><br><br>
     <img src="/static/logo.png" alt="AlienVault Logo" height="100">

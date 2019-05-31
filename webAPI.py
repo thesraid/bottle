@@ -17,7 +17,7 @@
 '''
 
 import bottle, os, time, subprocess
-from bottle import run, template, response, request, static_file
+from bottle import run, template, response, post, request, static_file, route
 import pymongo
 import json
 import requests
@@ -35,7 +35,7 @@ log = logging.getLogger('boru')
 # Only boru service (scheduler) will log to journal
 #log.addHandler(JournalHandler())
 
-log.info("Starting...")
+#log.info("Starting...")
 
 app = application = bottle.Bottle()
 
@@ -84,7 +84,7 @@ http://patorjk.com/software/taag/#p=display&f=ANSI%20Shadow&t=Rest%20API%0A
 # Retrieve jobs from the database. The endpoint called should match the collection retrieved
 # ----------------
 @app.post('/api/collections')
-def dbOutput(pageName="none"):
+def collections(pageName="none"):
   # Set the output type to json as the REST API accepts JSON in and sends JSON out. 
   setContentType("json")
 
@@ -105,14 +105,14 @@ def dbOutput(pageName="none"):
       collection = jsonIn['collection']
     except Exception as e:
       #print(str(e))
-      logging.warning("Empty or invalid request {'collection' : 'name'} required. Valid names are archivedJobs, courses, failedJobs, scheduledJobs, subOrgs and tasks")
+      log.warning("Empty or invalid request {'collection' : 'name'} required. Valid names are archivedJobs, courses, failedJobs, scheduledJobs, subOrgs and tasks")
       return {"error" : "Empty or invalid request {'collection' : 'name'} required. Valid names are archivedJobs, courses, failedJobs, scheduledJobs, subOrgs and tasks"}
   else:
     collection = pageName
 
   
   if not collection:
-    logging.warning("Invalid request {'_id' : 'jobID'} expected")
+    log.warning("Invalid request {'_id' : 'jobID'} expected")
     return {"error" : "Empty or invalid request {'collection' : 'name'} required. Valid names are archivedJobs, courses, failedJobs, scheduledJobs, subOrgs and tasks"}
   
   # mongo connection
@@ -123,8 +123,8 @@ def dbOutput(pageName="none"):
     # specifying the mongo database = 'boruDB'
     mongodb = mongoClient.boruDB
   except Exception as e:
-    # logging
-    logging.error("Failed to establish connection with mongo: {}".format(str(e)))
+    # log
+    log.error("Failed to establish connection with mongo: {}".format(str(e)))
     return {"error" : "Failed to establish connection with mongo: {}".format(str(e))}
 
   # Retrieve the list of jobs and convert from Mongo Cursor format to a list
@@ -141,7 +141,7 @@ def dbOutput(pageName="none"):
   elif collection == "courses":
     dbOutput=list(mongodb.courses.find())
   else:
-    logging.warning("Unknown collection {}. Valid names are archivedJobs, courses, failedJobs, scheduledJobs, subOrgs and tasks".format(collection))
+    log.warning("Unknown collection {}. Valid names are archivedJobs, courses, failedJobs, scheduledJobs, subOrgs and tasks".format(collection))
     return {"error" : "Unknown collection {}. Valid names are archivedJobs, courses, failedJobs, scheduledJobs, subOrgs and tasks".format(collection)}
 
   #print(dbOutput)
@@ -170,14 +170,14 @@ def deleteEntry(passIn="none"):
     else:
       jsonIn = passIn
   except Exception:
-    # logging
-    logging.warning("Empty or invalid request {'_id' : 'jobID'} required")
+    # log
+    log.warning("Empty or invalid request {'_id' : 'jobID'} required")
     return {"error" : "Empty or invalid request {'_id' : 'jobID'} required"}
 
 
   # Verifies that JSON is present and contains an _id option
   if not jsonIn:
-    logging.warning("Empty or invalid request _id required")
+    log.warning("Empty or invalid request _id required")
     return {"error" : "Empty or invalid request {'_id' : 'jobID'} required"}
   else:
     try:
@@ -187,19 +187,19 @@ def deleteEntry(passIn="none"):
       return {"error" : str(e)}
   
   if not _id:
-    logging.warning("Invalid request {'_id' : 'jobID'} expected")
+    log.warning("Invalid request {'_id' : 'jobID'} expected")
     return {"error" : "Invalid request {'_id' : 'jobID'} expected"}
 
   # mongo connection
   try:
-    logging.warning("Connecting to DB....")
+    log.warning("Connecting to DB....")
     # setting up the mongo client
     mongoClient = pymongo.MongoClient()
     # specifying the mongo database = 'boruDB'
     mongodb = mongoClient.boruDB
   except Exception as e:
-    # logging
-    logging.error("Failed to establish connection with mongo: {}".format(str(e)))
+    # log
+    log.error("Failed to establish connection with mongo: {}".format(str(e)))
     return {"error" : "Failed to establish connection with mongo: {}".format(str(e))}
 
   # Take the _id received from the sender as a string (embedded in json) and convert to a Mongo Cursor object. 
@@ -207,8 +207,8 @@ def deleteEntry(passIn="none"):
   try:
     myquery = { "_id": ObjectId(_id) }
   except Exception as e:
-    # logging
-    logging.error(str(e))
+    # log
+    log.error(str(e))
     return {"error" : (str(e))}
   
   # Find the job using the supplied _id to make sure that it exists and then to delete it
@@ -225,9 +225,9 @@ def deleteEntry(passIn="none"):
           tagName = x['tag']
           jobStatus = x['jobStatus']
           if (jobStatus != "pending") and (jobStatus != "failed") and (jobStatus != "finished"):
-            logging.warning("Cannot delete a running job")
+            log.warning("Cannot delete a running job")
             return {"error" : "Cannot delete a running job"}
-        logging.warning("Deleting " + _id + " job from scheduledJobs")
+        log.warning("Deleting " + _id + " job from scheduledJobs")
         mongodb.scheduledJobs.delete_one(myquery)
         break
 
@@ -236,7 +236,7 @@ def deleteEntry(passIn="none"):
         loopBreak = True
         for x in dbOutput:
           tagName = x['tag']
-        logging.warning("Deleting " + _id + " job from archivedJobs")
+        log.warning("Deleting " + _id + " job from archivedJobs")
         mongodb.archivedJobs.delete_one(myquery)
         #print ("Job deleted from archivedJobs")
         break
@@ -246,7 +246,7 @@ def deleteEntry(passIn="none"):
         loopBreak = True
         for x in dbOutput:
           tagName = x['tag']
-        logging.warning("Deleting " + _id + " job from failedJobs")
+        log.warning("Deleting " + _id + " job from failedJobs")
         mongodb.failedJobs.delete_one(myquery)
         break
 
@@ -255,11 +255,11 @@ def deleteEntry(passIn="none"):
     else:
       # Close the database 
       mongoClient.close()
-      logging.warning("Trying to delete the job " + _id + " but could not find it")
+      log.warning("Trying to delete the job " + _id + " but could not find it")
       return {"error" : "Job not found"}
 
   except Exception as e:
-    logging.error("Error: {}".format(str(e)))
+    log.error("Error: {}".format(str(e)))
     return {"error" : "{}".format(str(e))}
   
   # Close the database 
@@ -287,7 +287,7 @@ def viewEntry(passIn="none"):
       # Pulls in the full json sent to the endpoint
       jsonIn = request.json
     except Exception as e:
-      logging.warning("Empty or invalid request {'_id' : 'jobID'} required")
+      log.warning("Empty or invalid request {'_id' : 'jobID'} required")
       return {"error" : "Empty or invalid request {'_id' : 'jobID'} required"}
   else:
     jsonIn = passIn
@@ -295,18 +295,18 @@ def viewEntry(passIn="none"):
 
   # Verifies that JSON is present and contains an _id option
   if not jsonIn:
-    logging.warning("Empty or invalid request _id required")
+    log.warning("Empty or invalid request _id required")
     return {"error" : "Empty or invalid request {'_id' : 'jobID'} required"}
   else:
     try:
       _id = jsonIn.get("_id")
     except Exception as e:
       #print(str(e))
-      logging.error(str(e))
+      log.error(str(e))
       return {"error" : str(e)}
   
   if not _id:
-    logging.warning("Invalid request {'_id' : 'jobID'} expected")
+    log.warning("Invalid request {'_id' : 'jobID'} expected")
     return {"error" : "Invalid request {'_id' : 'jobID'} expected"}
 
   # mongo connection
@@ -317,8 +317,8 @@ def viewEntry(passIn="none"):
     # specifying the mongo database = 'boruDB'
     mongodb = mongoClient.boruDB
   except Exception as e:
-    # logging
-    logging.error("Failed to establish connection with mongo: {}".format(str(e)))
+    # log
+    log.error("Failed to establish connection with mongo: {}".format(str(e)))
     return {"error" : "Failed to establish connection with mongo: {}".format(str(e))}
 
   # Take the _id received from the sender as a string (embedded in json) and convert to a Mongo Cursor object. 
@@ -326,8 +326,8 @@ def viewEntry(passIn="none"):
   try:
     myquery = { "_id": ObjectId(_id) }
   except Exception as e:
-    # logging
-    logging.error(str(e))
+    # log
+    log.error(str(e))
     return {"error" : (str(e))}
   
   # Find the job using the supplied _id to make sure that it exists and then to return it
@@ -357,11 +357,11 @@ def viewEntry(passIn="none"):
     else:
       # Close the database 
       mongoClient.close()
-      logging.warning("Job " + _id + " not found")
+      log.warning("Job " + _id + " not found")
       return {"error" : "Job not found"}
 
   except Exception as e:
-    logging.error("Error: {}".format(str(e)))
+    log.error("Error: {}".format(str(e)))
     return {"error" : "{}".format(str(e))}
   
   # Close the database 
@@ -387,14 +387,14 @@ def viewSubOrg(passIn="none"):
     try:
       jsonIn = request.json
     except Exception as e:
-      logging.error("Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required")
+      log.error("Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required")
       return {"error" : "Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required"}
   else:
     jsonIn = passIn
 
   # Verifies that JSON is present and contains an _id or a subOrgName option
   if not jsonIn:
-    logging.warning("Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required")
+    log.warning("Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required")
     return {"error" : "Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required"}
   else:
     try:
@@ -411,11 +411,11 @@ def viewSubOrg(passIn="none"):
         myquery = { "subOrgName": subOrgName }
 
       if ((not _id) and (not subOrgName)):
-        logging.warning("Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required")
+        log.warning("Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required")
         return {"error" : "Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required"}
 
     except Exception as e:
-      logging.error(str(e))
+      log.error(str(e))
       return {"error" : "Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required"}
   
   # mongo connection
@@ -426,8 +426,8 @@ def viewSubOrg(passIn="none"):
     # specifying the mongo database = 'boruDB'
     mongodb = mongoClient.boruDB
   except Exception as e:
-    # logging
-    logging.error("Failed to establish connection with mongo: {}".format(str(e)))
+    # log
+    log.error("Failed to establish connection with mongo: {}".format(str(e)))
     return {"error" : "Failed to establish connection with mongo: {}".format(str(e))}
 
   
@@ -440,7 +440,7 @@ def viewSubOrg(passIn="none"):
       return {"error" : "subOrg not found"}
 
   except Exception as e:
-    logging.error("Error: {}".format(str(e)))
+    log.error("Error: {}".format(str(e)))
     return {"error" : "{}".format(str(e))}
   
   # Close the database 
@@ -465,14 +465,14 @@ def freeSubOrg(passIn="none"):
     try:
       jsonIn = request.json
     except Exception as e:
-      logging.warning("Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required")
+      log.warning("Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required")
       return {"error" : "Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required"}
   else:
     jsonIn = passIn
 
   # Verifies that JSON is present and contains an _id or a subOrgName option
   if not jsonIn:
-    logging.warning("Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required")
+    log.warning("Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required")
     return {"error" : "Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required"}
   else:
     try:
@@ -489,11 +489,11 @@ def freeSubOrg(passIn="none"):
         myquery = { "subOrgName": subOrgName }
 
       if ((not _id) and (not subOrgName)):
-        logging.warning("Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required")
+        log.warning("Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required")
         return {"error" : "Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required"}
 
     except Exception as e:
-      logging.error(str(e))
+      log.error(str(e))
       return {"error" : "Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required"}
   
   # mongo connection
@@ -504,8 +504,8 @@ def freeSubOrg(passIn="none"):
     # specifying the mongo database = 'boruDB'
     mongodb = mongoClient.boruDB
   except Exception as e:
-    # logging
-    logging.error("Failed to establish connection with mongo: {}".format(str(e)))
+    # log
+    log.error("Failed to establish connection with mongo: {}".format(str(e)))
     return {"error" : "Failed to establish connection with mongo: {}".format(str(e))}
 
   
@@ -517,15 +517,15 @@ def freeSubOrg(passIn="none"):
     if dbOutput.raw_result['updatedExisting']:
       output = myquery
     elif not dbOutput.raw_result['updatedExisting']:
-      logging.warning("Supplied value does not match a subOrg")
+      log.warning("Supplied value does not match a subOrg")
       output = {"Error" : "Supplied value does not match a subOrg"}
     else:
-      logging.warning("Unknown reponse from database. Please check your values and try again")
+      log.warning("Unknown reponse from database. Please check your values and try again")
       output = {"Error": "Unknown reponse from database. Please check your values and try again"}
 
   except Exception as e:
     mongoClient.close()
-    logging.warning("Error: {}".format(str(e)))
+    log.warning("Error: {}".format(str(e)))
     return {"error" : "{}".format(str(e))}
   
   # Close the database 
@@ -552,8 +552,8 @@ def extendEntry(passIn="none"):
     else:
       jsonIn = passIn
   except Exception :
-    # logging
-    logging.error("Empty or invalid request {'_id' : 'jobID'} required")
+    # log
+    log.error("Empty or invalid request {'_id' : 'jobID'} required")
     return {"error" : "Empty or invalid request {'_id' : 'jobID'} required"}
 
 
@@ -580,7 +580,7 @@ def extendEntry(passIn="none"):
     # specifying the mongo database = 'boruDB'
     mongodb = mongoClient.boruDB
   except Exception as e:
-    # logging
+    # log
     #print("Failed to establish connection with mongo: {}".format(str(e)))
     return {"error" : "Failed to establish connection with mongo: {}".format(str(e))}
 
@@ -589,7 +589,7 @@ def extendEntry(passIn="none"):
   try:
     myquery = { "_id": ObjectId(_id) }
   except Exception as e:
-    # logging
+    # log
     #print(str(e))
     return {"error" : (str(e))}
   
@@ -605,10 +605,10 @@ def extendEntry(passIn="none"):
         # Remove all suspended and unsuspend dates
         # Replace unsuspend with saved date from before. 
         if (jobStatus == "suspended"):
-          logging.warning("Extending finish date of suspended job " + _id + ". Job will be resumed at " + str((x['listOfResumeTimes'])[0]))
+          log.warning("Extending finish date of suspended job " + _id + ". Job will be resumed at " + str((x['listOfResumeTimes'])[0]))
           newResumeList = [(x['listOfResumeTimes'])[0]]
         else:
-          logging.warning("Extending finish date of " + jobStatus + " job with the ID " + _id)
+          log.warning("Extending finish date of " + jobStatus + " job with the ID " + _id)
           newResumeList = []
 
         mongodb.scheduledJobs.find_and_modify(myquery,{"$set": {"listOfResumeTimes": newResumeList}}, upsert=False )
@@ -623,11 +623,11 @@ def extendEntry(passIn="none"):
     else:
       # Close the database 
       mongoClient.close()
-      logging.warning("Job " + _id + "not found")
+      log.warning("Job " + _id + "not found")
       return {"error" : "Job " + _id + " not found"}
 
   except Exception as e:
-    logging.error("Error: {}".format(str(e)))
+    log.error("Error: {}".format(str(e)))
     return {"error" : "{}".format(str(e))}
   
   # Close the database 
@@ -674,14 +674,14 @@ def index():
 @app.route('/viewJobs/<pageName>')
 def viewJobs(pageName):
   
-  databaseOutput = dbOutput(pageName)
+  databaseOutput = collections(pageName)
 
   
   if (type(databaseOutput) is dict):
     # Set content type to HTML before returning it
     # This has to be set before the return as calling the REST API sets content_type to json
     setContentType("html")
-    logging.warning(databaseOutput['error'])
+    log.warning(databaseOutput['error'])
     return template('error', error=databaseOutput['error'])
   else:
     Output = json.loads(databaseOutput)
@@ -709,7 +709,7 @@ def deleteJob(jobId):
       # Set content type to HTML before returning it
       # This has to be set before the return as calling the REST API sets content_type to json
       setContentType("html")
-      logging.warning(output['error'])
+      log.warning(output['error'])
       return template('error', error=output['error'])
     #else:
     #  Output = json.loads(output)
@@ -737,7 +737,7 @@ def viewJob(jobId):
       # Set content type to HTML before returning it
       # This has to be set before the return as calling the REST API sets content_type to json
       setContentType("html")
-      logging.warning(output['error'])
+      log.warning(output['error'])
       return template('error', error=output['error'])
     #else:
     #  Output = json.loads(output)
@@ -755,7 +755,7 @@ def viewJob(jobId):
 @app.route('/viewSubOrgs')
 def viewSubOrgs():
   
-  output = dbOutput("subOrgs")
+  output = collections("subOrgs")
   #print (type(databaseOutput))
   #print (databaseOutput)
   
@@ -764,7 +764,7 @@ def viewSubOrgs():
     # Set content type to HTML before returning it
     # This has to be set before the return as calling the REST API sets content_type to json
     setContentType("html")
-    logging.warning(output['error'])
+    log.warning(output['error'])
     return template('error', error=output['error'])
   else:
     Output = json.loads(output)
@@ -786,7 +786,7 @@ def displaySubOrg(key, value):
   jobJSON = {key: value}
   #print(type(jobJSON))sch
   output = viewSubOrg(jobJSON)
-  #databaseOutput = dbOutput("subOrgs")
+  #databaseOutput = collections("subOrgs")
   #print (type(databaseOutput))
   #print (databaseOutput)
   
@@ -795,7 +795,7 @@ def displaySubOrg(key, value):
     # Set content type to HTML before returning it
     # This has to be set before the return as calling the REST API sets content_type to json
     setContentType("html")
-    logging.warning(output['error'])
+    log.warning(output['error'])
     return template('error', error=output['error'])
   else:
     Output = json.loads(output)
@@ -816,7 +816,7 @@ def readySubOrg(key, value):
   jobJSON = {key: value}
   #print(type(jobJSON))sch
   output = freeSubOrg(jobJSON)
-  #databaseOutput = dbOutput("subOrgs")
+  #databaseOutput = collectiosns("subOrgs")
   #print (type(databaseOutput))
   #print (databaseOutput)
   
@@ -825,7 +825,7 @@ def readySubOrg(key, value):
     # Set content type to HTML before returning it
     # This has to be set before the return as calling the REST API sets content_type to json
     setContentType("html")
-    logging.warning(output['error'])
+    log.warning(output['error'])
     return template('error', error=output['error'])
   else:
     Output = json.loads(output)
@@ -854,7 +854,7 @@ def extendJob(jobId):
       # Set content type to HTML before returning it
       # This has to be set before the return as calling the REST API sets content_type to json
       setContentType("html")
-      logging.warning(output['error'])
+      log.warning(output['error'])
       return template('error', error=output['error'])
     #else:
     #  Output = json.loads(output)
@@ -865,6 +865,77 @@ def extendJob(jobId):
 
   # Send output to extendJob.tpl
   return template('extendJob', jobId=output)
+
+
+# ----------------
+# Extend Job in the Database
+# ----------------
+@app.route('/scheduleClass', method='GET')
+def getScheduleClass():
+  
+  output = collections("courses")
+
+  if ((type(output) is dict)):
+    if (output['error']):
+      #print ("ERROR - EXIT", output['error'])
+      # Set content type to HTML before returning it
+      # This has to be set before the return as calling the REST API sets content_type to json
+      setContentType("html")
+      log.warning(output['error'])
+      return template('error', error=output['error'])
+    #else:
+    #  Output = json.loads(output)
+    
+  # Set content type to HTML before returning it
+  # This has to be set at the end of this module as calling the REST API sets content_type to json
+  setContentType("html")
+
+  # Send output to extendJob.tpl
+  return template('getClass', output=output)
+
+@app.route('/scheduleClass', method='POST')
+def postScheduleClass():
+  
+  courseName = request.forms.get('course')
+  #print ("Course Name: ", courseName)
+
+  output = collections("courses")
+  #print ("Output: ", output)
+
+  if ((type(output) is dict)):
+    if (output['error']):
+      #print ("ERROR - EXIT", output['error'])
+      # Set content type to HTML before returning it
+      # This has to be set before the return as calling the REST API sets content_type to json
+      setContentType("html")
+      log.warning(output['error'])
+      return template('error', error=output['error'])
+    
+  courses = json.loads(output)
+  #print ("Courses: ", courses)
+  for doc in courses:
+    if doc['courseName'] == courseName:
+      courseJSON = doc
+  
+  #print ("Single Course: ", courseJSON)
+
+  # Set content type to HTML before returning it
+  # This has to be set at the end of this module as calling the REST API sets content_type to json
+  setContentType("html")
+
+  # Send output to extendJob.tpl
+  return template('classParameters', output=courseJSON)
+
+  
+@app.route('/submitClass', method='POST')
+def postSubmitClass():
+  
+  output = request.forms
+  for x in output:
+    print(x,output[x])
+
+  
+  return template('output', output=output)
 
 
 #---------------------------------------------------------------------------------------------------
