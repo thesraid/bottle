@@ -42,7 +42,7 @@ def postScheduleClass():
     # list of required parameters that are needed to schedule a class.
     # when expanding in future, add new required parameters to this list in order for the new parameters to be accounted for
     # (will move to config collection in boruDB..................................................................................)
-    listOfRequiredParameters = ['sender', 'instructor', 'numberOfSubOrgs', 'course', 'sensor', 'region', 'tag', 'startDate', 'finishDate', 'timezone', 'suspend', 'environment']
+    listOfRequiredParameters = ['sender', 'instructor', 'numberOfSubOrgs', 'course', 'sensor', 'region', 'tag', 'startDate', 'finishDate', 'timezone', 'suspend']
 
     # There are 3 blocks of paramenters to vaildate
     #  1. the 'listOfRequiredParameters' from above must be in the request

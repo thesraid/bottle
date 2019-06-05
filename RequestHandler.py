@@ -7,6 +7,7 @@
 
 import pymongo, datetime, json, logging
 from datetime import timedelta
+import pytz
 from pytz import timezone
 
 logging.basicConfig(filename='/var/log/boru.log',level=logging.DEBUG, format="%(asctime)s: %(levelname)s: %(message)s")
@@ -47,7 +48,7 @@ def insertAwsClass(request):
   except Exception as e:
     # logging
     log.error("[RequestHandler] Failed to establish connection with mongo: {}".format(str(e)))
-    return ("Failed to schedule class: Server Error: Unable to establish connection with database.")
+    return {"error" : "Failed to schedule class: Server Error: Unable to establish connection with database."}
   # ------
 
   # ----------
@@ -61,7 +62,8 @@ def insertAwsClass(request):
     mongoClient.close()
     # logging
     log.warning("[RequestHandler] Failed to schedule class: 'course':'{}' provided by user is not valid.".format(request['course']))
-    return("Failed to schedule class: 'course' value is not valid. List of Valid Courses: {}".format(str(response[1])))
+    error = "Failed to schedule class: 'course' value is not valid. List of Valid Courses: {}".format(str(response[1]))
+    return {"error": error}
 
   # validate (if exists) any 'list' additional parameters, with the input from the user to only allow the expected values through
   response = validateCourseAdditionalListParameters(request, mongodb, log)
@@ -70,7 +72,8 @@ def insertAwsClass(request):
     mongoClient.close()
     # logging
     log.warning("[RequestHandler] Failed to schedule class: parameters provided by user are not valid for the 'course' provided.")
-    return("Failed to schedule class: parameters provided are not valid for the 'course': '{}' | User Input: '{}' | Valid Input: '{}'".format(str(request['course']), str(response[1]), str(response[2])))
+    error = "Failed to schedule class: parameters provided are not valid for the 'course': '{}' | User Input: '{}' | Valid Input: '{}'".format(str(request['course']), str(response[1]), str(response[2]))
+    return {"error": error}
 
   response = validateNotificationParameters(request, mongodb, log)
   if(not response[0]):
@@ -78,7 +81,8 @@ def insertAwsClass(request):
     mongoClient.close()
     # logging
     log.warning("Failed to schedule class: parameter '{}' provided by user is not valid. 'course': '{}' | User Input: '{}' | Error Reason: '{}'".format(str(response[1]), str(request['course']), str(response[2]), str(response[3])))
-    return("Failed to schedule class: parameter '{}' provided by user is not valid. 'course': '{}' | User Input: '{}' | Error Reason: '{}'".format(str(response[1]), str(request['course']), str(response[2]), str(response[3])))
+    error = "Failed to schedule class: parameter '{}' provided by user is not valid. 'course': '{}' | User Input: '{}' | Error Reason: '{}'".format(str(response[1]), str(request['course']), str(response[2]), str(response[3]))
+    return {"error": error}
 
   response = appendNotificationsListToRequest(request, mongodb, log)
   if(not response[0]):
@@ -86,7 +90,8 @@ def insertAwsClass(request):
     mongoClient.close()
     # logging
     log.error("Failed to schedule class: function appendNotificationsListToRequest failed. Error: {}".format(str(response[1])))
-    return("Failed to schedule class: internal error.")
+    error = "Failed to schedule class: function appendNotificationsListToRequest in RequestHandler.py had an issue."
+    return {"error": error}
 
   # validating timezone
   response = validateTimezoneInDB(request, mongodb)
@@ -95,33 +100,18 @@ def insertAwsClass(request):
     mongoClient.close()
     # logging
     log.warning("[RequestHandler] Failed to schedule class: 'timezone':'{}' provided by user is not valid.".format(request['timezone']))
-    return("Failed to schedule class: 'timezone' is not valid. List of valid timezones: {}".format(response[1]))
+    error = "Failed to schedule class: 'timezone' is not valid. List of valid timezones: {}".format(response[1])
+    return {"error": error}
 
-  response = validateEnvironmentInDB(request, mongodb)
+  # converting the Region form user input to format read by all the scripts and plugins and adding it to the job
+  response = convertRegion(request, mongodb)
   if(not response[0]):
     # closing mongo connection
     mongoClient.close()
     # logging
-    log.warning("[RequestHandler] Failed to schedule class: 'environment':'{}' provided by user is not valid.".format(request['environment']))
-    return("Failed to schedule class: 'environment' is not valid. List of valid environments: {}".format(response[1]))
-
-  # validating region is in listOfSupportedRegions
-  response = validateRegionInDB(request, mongodb)
-  if(not response[0]):
-    # closing mongo connection
-    mongoClient.close()
-    # logging
-    log.warning("[RequestHandler] Failed to schedule class: 'region':'{}' provided by user is not valid.".format(request['region']))
-    return("Failed to schedule class: 'region' is not valid. List of valid regions: {}".format(response[1]))
-
-  # the above is valid so convert to a variable which the cloud environment can read (eg. us-east-1)
-  response = convertRegion(request)
-  if(not response[0]):
-    # closing mongo connection
-    mongoClient.close()
-    # logging
-    log.warning("[RequestHandler] Failed to schedule class: 'convertRegion' method failed")
-    return("Failed to schedule class: internal error.")
+    log.warning("[RequestHandler] Failed to schedule class: '{}' provided by user is not valid: Valid List'{}'".format(str(request['region']), str(response[1])))
+    error = "Failed to schedule class: 'region' is not valid. List of valid regions: {}".format(response[1])
+    return {"error": error}
   else:
     # set the new region
     request['region'] = response[2]
@@ -133,7 +123,8 @@ def insertAwsClass(request):
     mongoClient.close()
     # logging
     log.warning("[RequestHandler] Failed to schedule class: 'finishDate':'{}' provided by user is not valid.".format(request['finishDate']))
-    return("Failed to schedule class: 'finishDate' cannot be 'now'.")
+    error = "Failed to schedule class: 'finishDate' cannot be 'now'."
+    return {"error": error}
 
   # validating startDate format
   response = validateStartDateFormat(request, datetimeFormat)
@@ -142,7 +133,8 @@ def insertAwsClass(request):
     mongoClient.close()
     # logging
     log.warning("[RequestHandler] Failed to schedule class: 'startDate':'{}' provided by user is not valid.".format(request['startDate']))
-    return("Failed to schedule class: 'startDate' format is incorrect. Use: 'YYYY-MM-DD'")
+    error = "Failed to schedule class: 'startDate' format is incorrect. Use: 'YYYY-MM-DD'"
+    return {"error": error}
 
   # validate finishDate format
   response = validateFinishDateFormat(request, datetimeFormat)
@@ -151,34 +143,50 @@ def insertAwsClass(request):
     mongoClient.close()
     # logging
     log.warning("[RequestHandler] Failed to schedule class: 'finishDate':'{}' provided by user is not valid.".format(request['finishDate']))
-    return("Failed to schedule class: 'finishDate' format is incorrect. Use: 'YYYY-MM-DD'")
+    error = "Failed to schedule class: 'finishDate' format is incorrect. Use: 'YYYY-MM-DD'"
+    return {"error": error}
 
-#================================================================================================================================================
 
-  # getting currentTimeInUTC ******* (.now() returns time in local time not UTC | .utcnow() to avoid problems with local system timezone and summer time)
+# ====
+   # getting currentTimeInUTC (used with 'now')
   currentTimeInUTC = datetime.datetime.utcnow()
 
+  # check if startDate == 'now'
+  # if so, use the 'currentTimeInUTC' to fill in the date
   if(request['startDate'] == "now"):
+    # Add year, month, day
     request['startDate'] = datetime.date(year = currentTimeInUTC.year, month = currentTimeInUTC.month, day = currentTimeInUTC.day)
-
+    # convert to datetime
     request['startDate'] = datetime.datetime.strptime(str(request['startDate']), datetimeFormat)
-
+    # Add hours & minutes
     request['startDate'] = request['startDate'] + timedelta(hours = currentTimeInUTC.hour)
     request['startDate'] = request['startDate'] + timedelta(minutes = (currentTimeInUTC.minute + 1))
-
+    request['startDate'] = pytz.utc.localize(request['startDate'])
+    
+  # if Not 'now' continue as normal with user input
   else:
-    # adding hours and minutes specified on top to the startTime and finishTime(done before converting to UTC so the times are 'local')
+    # adding hours and minutes specified on top to the startTime and finishTime
+    # (done before converting to UTC so the times are 'local' timezone)
     request['startDate'] = request['startDate'] + timedelta(hours = startHour)
     request['startDate'] = request['startDate'] + timedelta(minutes = startMinute)
-    # converting startDate to UTC
+    # Convert startDate to 'UTC'
     request['startDate'] = convertTimezone(request['startDate'], request['timezone'])
-
+  # Next up, 'finishDate'
+  # Adding hours and minutes specified on top to the startTime and finishTime
+  # (done before converting to UTC so the times are 'local' timezone)
   request['finishDate'] = request['finishDate'] + timedelta(hours = finishHour)
   request['finishDate'] = request['finishDate'] + timedelta(minutes = finishMinute)
-  # converting finishDate to UTC
+  # Next
+  # Convert the FinishDate to 'UTC' (We do not convert 'now' as it is in UTC, for 'now' used 'pytz.utc.localize')
   request['finishDate'] = convertTimezone(request['finishDate'], request['timezone'])
 
-#================================================================================================================================================
+  # Next, Generate suspend and Resum e times in 'UTC'
+  listOfSuspendTimes = []
+  listOfResumeTimes = []
+
+  # Generating suspend and resume times
+  generateSuspendAndResumeTimes(request, listOfSuspendTimes, listOfResumeTimes)
+  addSuspendAndResumeDates(request, listOfSuspendTimes, listOfResumeTimes)
 
   # removing timezone from datetime object, it is no longer needed and it creates Error: can't compare offset-naive and offset-aware datetimes
   request['startDate'] = (request['startDate']).replace(tzinfo = None)
@@ -191,7 +199,8 @@ def insertAwsClass(request):
     mongoClient.close()
     # logging
     log.warning("[RequestHandler] Failed to schedule class: 'startDate':'{}' provided by user is not in future.".format(request['startDate']))
-    return("Failed to schedule class: 'startDate' must be in the future.")
+    error = "Failed to schedule class: 'startDate' must be in the future."
+    return {"error": error}
 
   # validating finishDate is bigger than startDate
   response = validateFinishDateIsBiggerThanStartDate(request)
@@ -200,7 +209,8 @@ def insertAwsClass(request):
     mongoClient.close()
     # logging
     log.warning("[RequestHandler] Failed to schedule class: 'finishDate':'{}' provided by user is before 'startDate':'{}'.".format(request['startDate'], request['finishDate']))
-    return("Failed to schedule class: 'finishDate' must be after 'startDate'.")
+    error = "Failed to schedule class: 'finishDate' must be after 'startDate'."
+    return {"error": error}
 
   # validating sensor input is yes or no
   response = validateSensor(request)
@@ -209,7 +219,8 @@ def insertAwsClass(request):
     mongoClient.close()
     # logging
     log.warning("[RequestHandler] Failed to schedule class: 'sensor':'{}' provided by user is not valid.".format(request['sensor']))
-    return("Failed to schedule class: 'sensor' must be after 'yes' or 'no'.")
+    error = "Failed to schedule class: 'sensor' must be after 'yes' or 'no'."
+    return {"error": error}
 
   # validating suspend input is yes or no
   response = validateSuspend(request)
@@ -218,7 +229,8 @@ def insertAwsClass(request):
     mongoClient.close()
     # logging
     log.warning("[RequestHandler] Failed to schedule class: 'suspend':'{}' provided by user is not valid.".format(request['suspend']))
-    return("Failed to schedule class: 'suspend' must be after 'yes' or 'no'.")
+    error = "Failed to schedule class: 'suspend' must be after 'yes' or 'no'."
+    return {"error": error}
 
   # validate user unput is int, if so convert it, else invalid
   response = validateAndConvertNumberOfSubOrgsToInt(request)
@@ -227,7 +239,8 @@ def insertAwsClass(request):
     mongoClient.close()
     # logging
     log.warning("[RequestHandler] Failed to schedule class: 'numberOfSubOrgs':'{}' provided by user is not valid.".format(request['numberOfSubOrgs']))
-    return("Failed to schedule class: 'numberOfSubOrgs' must be a valid number(integer).")
+    error = "Failed to schedule class: 'numberOfSubOrgs' must be a valid number(integer)."
+    return {"error": error}
 
   # validate the amount of subOrgs is not bigger than the limit set
   response = validateNumberOfSubOrgs(request, subOrgLimitPerClass)
@@ -236,7 +249,8 @@ def insertAwsClass(request):
     mongoClient.close()
     # logging
     log.warning("[RequestHandler] Failed to schedule class: 'numberOfSubOrgs':'{}' provided by user is not valid.".format(request['numberOfSubOrgs']))
-    return("Failed to schedule class: 'numberOfSubOrgs' is not valid.")
+    error = "Failed to schedule class: 'numberOfSubOrgs' is not valid."
+    return {"error": error}
 
   # vaildate that enough free subOrgs are available for the request
   response = validateAmountOfFreeSubOrgs(request, mongodb)
@@ -245,20 +259,14 @@ def insertAwsClass(request):
     mongoClient.close()
     # logging
     log.warning("[RequestHandler] Failed to schedule class: 'numberOfSubOrgs':'{}'. Not enough subOrgs available to schedule class in date range provided. Available amount: '{}'".format(str(request['numberOfSubOrgs']), str(response[1])))
-    return("Failed to schedule class: 'numberOfSubOrgs':'{}'. Not enough subOrgs available to schedule class in date range provided. Available amount from: {} to: {} is: '{}'".format(str(request['numberOfSubOrgs']), str(request['startDate']), str(request['finishDate']), str(response[1])))
+    error = "Failed to schedule class: 'numberOfSubOrgs':'{}'. Not enough subOrgs available to schedule class in date range provided. Available amount from: {} to: {} is: '{}'".format(str(request['numberOfSubOrgs']), str(request['startDate']), str(request['finishDate']), str(response[1]))
+    return {"error": error}
 
   # --- after this line, the request has been validated ---
 
   # ---------------------------------
   # additional information to request
   # ---------------------------------
-
-  # generate suspend and resume times for the class
-  listOfSuspendTimes = []
-  listOfResumeTimes = []
-
-  generateSuspendAndResumeTimes(request, listOfSuspendTimes, listOfResumeTimes)
-  addSuspendAndResumeDates(request, listOfSuspendTimes, listOfResumeTimes)
 
   # gather additional key fields (from course IN THE REQUEST) from course collection in datebase
   listOfAdditionalCourseKeys = []
@@ -285,7 +293,7 @@ def insertAwsClass(request):
 
   # logging
   log.info("[RequestHandler] Class successfully scheduled: {}".format(request))
-  return("You have successfully scheduled a class!")
+  return {"Result" : "Success"}
 
 def validateAndConvertNumberOfSubOrgsToInt(request):
   try:
@@ -351,7 +359,7 @@ def validateNotificationParameters(request, mongodb, log):
   allCourses = mongodb.courses.find()
   # getting course name from request
   requestCourse = request['course']
-  # validate (oh god... this... works, good for now :( ugliest function ever... will change later if ihave time))
+  # validate (oh god... this... works, good for now :( ugliest function ever... will change later))
   # finding all course['notifications'] for the course specified in the request
   for course in allCourses:
     if(course['courseName'] == requestCourse):
@@ -444,7 +452,7 @@ def validateTimezoneInDB(request, mongodb):
   config = mongodb.config.find()
   for item in config:
     if(item['key'] == "timezone"):
-      listOfSupportedTimezones = item['timezones']
+      listOfSupportedTimezones = item['timezone']
       break
   # compare the user request timezone with all the ones in the database
   for validTimezone in listOfSupportedTimezones:
@@ -452,20 +460,6 @@ def validateTimezoneInDB(request, mongodb):
       return [True, listOfSupportedTimezones]
   # not found, return false
   return [False, listOfSupportedTimezones]
-
-def validateEnvironmentInDB(request, mongodb):
-  # get all environments in db
-  config = mongodb.config.find()
-  for item in config:
-    if(item['key'] == "environment"):
-      listOfSupportedEnvironments = item['environments']
-      break
-  # compare the user request environment with all the ones in the database
-  for validEnvironment in listOfSupportedEnvironments:
-    if(validEnvironment == request['environment']):
-      return [True, listOfSupportedEnvironments]
-  # not found, return false
-  return [False, listOfSupportedEnvironments]
 
 def validateRegionInDB(request, mongodb):
   # get all regions in db
@@ -537,35 +531,35 @@ def validateNumberOfSubOrgs(request, subOrgLimitPerClass):
   else:
     return True
 
-
 # ---
 
 def generateSuspendAndResumeTimes(request, listOfSuspendTimes, listOfResumeTimes):
   # create a counter to loop through the days
-  dateCounter = request['startDate']
-  # create a 'step' of 1 day that will be incremented through the duration of the class
+  # exerything has to be based on the finishDate, because startDate could be 'now' meaning some random hour and minute for suspend and resume times.
+  # no need to convert, as startDate and finishDate are allready in 'UTC'
+  dateCounter = request['finishDate']
+  innerCounter = request['finishDate']
+  # create a 'step' of 1 day that will be incremented through the duration of the class to keep track of how many suspends and resumes to generate
   step = datetime.timedelta(days = 1)
-  # Stepping through the range of days from startDate to finishDate and creating suspendTimes for each day as well as storing each days unsuspendTime
-  while dateCounter <= request['finishDate']:
-    # suspend
-    # generate the dates and convert each one to timezone as usual
-    suspendDate = datetime.datetime.strptime(str(dateCounter.year) + "-" + str(dateCounter.month) + "-" + str(dateCounter.day) + " " + str(finishHour) + ":" + str(finishMinute), "%Y-%m-%d %H:%M")
-    # convert the time to local timezone
-    suspendDate = convertTimezone(suspendDate, request['timezone'])
-    # add date to list
-    listOfSuspendTimes.append(suspendDate)
-    # resume
-    resumeDate = datetime.datetime.strptime(str(dateCounter.year) + "-" + str(dateCounter.month) + "-" + str(dateCounter.day) + " " + str(startHour) + ":" + str(startMinute), "%Y-%m-%d %H:%M")
-    # convert the time to local timezone
-    resumeDate = convertTimezone(resumeDate, request['timezone'])
+  # Stepping through the range backwords from finishDate to startDate and creating suspendTimes and resumeTimes for each day
+  while dateCounter >= request['startDate']:
+    # resume (have to start with resume because loop is from finishDate to startDate and timedelta of 12 hours is used)
+    innerCounter = innerCounter + timedelta(hours=-12)
+    resumeDate = innerCounter
     # add date to list
     listOfResumeTimes.append(resumeDate)
-    # increase step to next day
-    dateCounter = dateCounter + step
-  # now delete the first resume time (never used)(must have!)
-  del listOfResumeTimes[0]
-  # now delete the last suspend time as it in not wanted (never used)(must have!)
+    # suspend
+    innerCounter = innerCounter + timedelta(hours=-12)
+    suspendDate = innerCounter
+    # add date to list
+    listOfSuspendTimes.append(suspendDate)
+    # decrese step to the day before (while loop until startDate)
+    dateCounter = dateCounter - step
+  # now delete the last resume time (never used)(must have!)
+  del listOfResumeTimes[len(listOfResumeTimes) - 1]
+  # now delete the last suspend time (never used)(must have!)
   del listOfSuspendTimes[len(listOfSuspendTimes) - 1]
+
 
 def addSuspendAndResumeDates(request, listOfSuspendTimes, listOfResumeTimes):
   request["listOfSuspendTimes"] = listOfSuspendTimes
@@ -601,37 +595,49 @@ def addStandardInformationToRequest(request):
 
 # ---
 
-def convertRegion(request):
-  # response = [ True/False , "Error message" , "Region to set in Job"]
-  # you cannot set the new region in this method. It is done after the return in else part if the response
+def convertRegion(request, mongodb):
   try:
+    # Get the environment based on request['course'] and db.config collection
+    courseName = request['course']
+    # user region input, used to compare against db.config keys
     region = request['region']
-    environment = request['environment']
-    # cloud environment
-    if(environment == "aws"):
-      # possible regions same as db.config(regions) collection
-      if(region == "EU West"):
-        return[True, "N/A", "us-east-1"]
-
-      elif(region == "EU Central"):
-        return[True, "N/A", "us-east-1"]
-
-      elif(region == "AUS West"):
-        return[True, "N/A", "us-east-1"]
-
-      elif(region == "US East"):
-        return[True, "N/A", "us-east-1"]
-
-      elif(region == "US Central"):
-        return[True, "N/A", "us-east-1"]
-
-      elif(region == "US West"):
-        return[True, "N/A", "us-east-1"]
-
-      else:
-        return [False, "Region Not Defined.", "N/A"]
+    # get the environment form courses
+    allCourses = mongodb.courses.find()
+    for course in allCourses:
+      if(str(course['courseName']) == str(courseName)):
+        environment = course['environment']
+        break
+  # extracting values from db.config
+    myList = []
+    configRegion = mongodb.config.find({"key":"region"})
+    for i in configRegion:
+      for j in i['region']:
+        for k in j.keys():
+          if(k == environment):
+            for l in j.values():
+              myList.append(l)
+    # lists used to store region keys and values from the config collection
+    listOfRegionKeys = []
+    listOfRegionValues = []
+    # getting these config values into the lists
+    for i in myList:
+      for j in i:
+        key = j.keys()
+        for k in key:
+          listOfRegionKeys.append(k)
+        value = j.values()
+        for l in value:
+          listOfRegionValues.append(l)
+    # looking for the one user entered
+    # if found return the value based on the key from the lists
+    for index in range(len(listOfRegionKeys)):
+      if(str(region) == str(listOfRegionKeys[index])):
+        return[True, listOfRegionKeys, listOfRegionValues[index]]
+    # notifu the user their input is invalid
+    return[False, listOfRegionKeys, "N/A"]
+  # in case if the db.config breaks with bad admin input
   except Exception as e:
-    return [False, e, "N/A"]
+    return[False, str(e), "N/A"]
 
 def insertRequestToScheduledJobs(request, mongodb):
   mongodb.scheduledJobs.insert_one(request)
@@ -639,16 +645,15 @@ def insertRequestToScheduledJobs(request, mongodb):
 # ---------
 # Timezones
 # ---------
+# useful links:
 # https://stackoverflow.com/questions/466345/converting-string-into-datetime
 # https://stackoverflow.com/questions/7065164/how-to-make-an-unaware-datetime-timezone-aware-in-python
 # https://www.saltycrane.com/blog/2009/05/converting-time-zones-datetime-objects-python/#convert-timezones
 # --------------------------------------------------------------------------------------------------------
+# Main Link:
+# https://stackoverflow.com/questions/1357711/pytz-utc-conversion
+# ===============================================================
 # converting the local time of class into UTC for boru to operate it.
 def convertTimezone(time, zone):
-  # user timezone
-  userLocalTimezone = timezone(zone)
-  # user time with their timezone
-  userLocalDate = userLocalTimezone.localize(time)
-  # user time converted into UTC
-  timeInUtc = userLocalDate.astimezone(timezone('UTC'))
-  return timeInUtc
+  tz = timezone(zone)
+  return tz.normalize(tz.localize(time)).astimezone(timezone('UTC'))

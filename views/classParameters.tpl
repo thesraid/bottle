@@ -10,13 +10,86 @@ function goBack() {
 }
 </script>
 
+% cloud = (output['environment'])
+
 <form action="/submitClass" method="post">
 <p>&nbsp;</p>
-% for k, v in sorted(output.items()):
-% print (k, v)
 
-% if k == "cloudFormationParameters":
-<br/>cloudFormationParameters: <br/><br/>
+%# The following are required for every request and are not stored in the course document in the database
+
+sender: <input type="text" name="sender"><br/>
+instructor: <input type="text" name="instructor"><br/>
+
+
+numberOfSubOrgs: <select name="numberOfSubOrgs">
+% for num in range(20):
+<option value={{num}}>{{num}}</option>
+% end
+</select><br/>
+
+sensor: <select name="sensor"><option value="true">yes</option><option value="false">no</option></select><br/>
+
+% for doc in config:
+%   for title in doc:
+%     if title not in ["_id", "key"]:
+
+%        if title == "region":
+          {{title}}:<select name="region">
+%          for cloudList in (doc[title]):
+
+%             for k, v in cloudList.items():
+%              if k == cloud:
+%                for l in v:
+                  
+%                  for o, p in l.items():
+                    <option value="{{p}}">{{o}}</option>
+%                  end
+
+
+%               end
+%              end
+%             end
+
+
+%          end
+
+          </select> <br/>
+
+%       else:
+        {{title}}:
+        % listOfItems = doc[title]
+        <select name="{{title}}">
+        %for item in listOfItems:
+          <option value="{{item}}">{{item}}</option>
+        %end
+        </select>
+        <br/>
+
+%       end
+%     end
+%   end
+% end
+
+tag: <input type="text" name="tag"><br/>
+
+
+startDate: <input type="date" name="startDate"><br/>
+finishDate: <input type="date" name="finishDate""><br/>
+suspend: <select name="suspend"><option value="true">yes</option><option value="false">no</option></select><br/>
+
+
+% for k, v in sorted(output.items()):
+%#print (k, v)
+
+%# List of parameters that we don't want to pass to the API
+% if k in ["_id", "sensorParameters", "courseTemplate", "environment", "resumeScriptName", "sensorTemplate", "startScriptName", "suspendScriptName", "finishScriptName"]:
+% pass
+
+%elif k == "courseName":
+<input type="hidden" name="course" value="{{v}}"/>
+{{k}} : {{v}} <br/>
+% elif k == "cloudFormationParameters":
+<br/><b>cloudFormationParameters:</b> <br/>
 
 % for x in v:
 
@@ -53,7 +126,7 @@ function goBack() {
 % end
 
 % elif k == "notifications":
-<br/>notifications: <br/>
+<br/><b>notifications:</b> <br/>
 
 % for x in v:
 % if x['notificationType'] == 'prompt':
@@ -75,15 +148,6 @@ function goBack() {
 
 %#{{x}}<br/>
 
-% end
-
-% elif k == "sensorParameters":
-<br/>sensorParameters : <br/>
-
-% for x in v:
-
-<input type="hidden" name="{{x['paramKey']}}" value="{{x['paramFile']}}"/>
- {{x['paramKey']}}: {{x['paramFile']}}<br/>
 % end
 
 %else:

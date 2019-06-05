@@ -59,8 +59,6 @@ li a:hover:not(.active) {
         %include
     </div>
     
-    <div class="footer">
-        <p>AlienVault</p>
-    </div>
+
 </body>
 </html>

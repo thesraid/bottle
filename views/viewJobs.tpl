@@ -32,6 +32,14 @@
     <h1 class="w3-xxxlarge w3-text-red"><b>View {{pageName}}</b></h1>
     <hr style="width:50px;border:5px solid red" class="w3-round">
 
+%summary = False
+%if pageName != "Job":
+% summary = True
+%end
+
+%if summary:
+Show summary only
+%end
 
 %import json
 % # Cycle through the json file as in comes in as a list
@@ -41,8 +49,9 @@
 
 
 <button class="collapsible">{{heading}}</button>
-<div class="content" align="left">
+<div class="content">
 
+<table>
 %  for k, v in sorted(doc.items()):              # for doc 2
 % delete = False
 
@@ -51,34 +60,40 @@
 %   delete = True
 % end
 
-% # If the key is _id then ad a link to the job page for that ID
+% # If the key is _id then add a link to the job page for that ID
 %    if (k == "_id"):      # if k 3
-      <a href="../viewJob/{{jobId}}"><b>{{k}} : {{v}} </b></a><br/>
+      <tr><td>{{k}}</td><td><a href="../viewJob/{{jobId}}">{{v}}</b></a></td></tr>
 %
 % # If the key is subOrgs then add a link to the subOrg page
 %    elif (k == "subOrgs"):
-{{k}} : </br>
+<tr><td>{{k}}</td><td>
 % for org in doc[k]:
- :&nbsp; <a href="../viewSubOrg/subOrgName/{{org}}"><b>{{org}}</b></a><br/>
+ <a href="../viewSubOrg/subOrgName/{{org}}"><b>{{org}}</b></a>
 % end
+</td>
+</tr>
 % # If the key is FailedSubOrgs then add a link to the subOrg page
 %    elif (k == "failedSubOrgs"):
-{{k}} : </br>
+<tr><td>{{k}}</td><td>
 % for org in doc[k]:
- :&nbsp; <a href="../viewSubOrg/subOrgName/{{org}}"><b>{{org}}</b></a><br/>
+ <a href="../viewSubOrg/subOrgName/{{org}}"><b>{{org}}</b></a>
 % end
+</td>
+</tr>
 % # If the key is finsihed Date and it's in the scheduled Jobs page then add an option to extend the labs
 %   elif (k == "finishDate") and (pageName == "scheduledJobs"):
-       {{k}} : {{v}} <a href="/extendJob/{{jobId}}" title="This will disable the suspending of labs">Extend by 3 hours</a><br/> 
+       <tr><td>{{k}}</td><td>{{v}} <a href="/extendJob/{{jobId}}" title="This will disable the suspending of labs">Extend by 3 hours</a></td></tr>
 %    else:
-       {{k}} : {{v}}<br/>
+       <tr><td>{{k}}</td><td>{{v}}</td></tr>
 %    end                                     #if k end 3
 
 %  end                                   # end for doc 2
+</table>
 % # If the variable delete is true this indicates that this job can be deleted. 
 % if delete:
    <a href="../deleteJob/{{jobId}}" style="color: rgb(255,0,0)">Delete</a>
 % end
+
 </div>
 <p>&nbsp;</p>
 % end                                   # end for dbOutput 1

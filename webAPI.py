@@ -26,6 +26,7 @@ import logging
 from bson import ObjectId, errors
 from json import dumps
 from datetime import datetime, timedelta
+import RequestHandler
 
 # ------------
 # logger setup
@@ -140,6 +141,8 @@ def collections(pageName="none"):
     dbOutput=list(mongodb.tasks.find())
   elif collection == "courses":
     dbOutput=list(mongodb.courses.find())
+  elif collection == "config":
+    dbOutput=list(mongodb.config.find())
   else:
     log.warning("Unknown collection {}. Valid names are archivedJobs, courses, failedJobs, scheduledJobs, subOrgs and tasks".format(collection))
     return {"error" : "Unknown collection {}. Valid names are archivedJobs, courses, failedJobs, scheduledJobs, subOrgs and tasks".format(collection)}
@@ -637,7 +640,189 @@ def extendEntry(passIn="none"):
   updateEntry = { "NewFinishTime" : newdate, "_id" : _id }
   return dumps(updateEntry, indent=4, sort_keys=True, default=str)
 
+# --------------------
+# POST | scheduleClass
+# --------------------
+# performs a post, validating and scheduling a class
+@app.post('/api/scheduleClass')
+def postScheduleClass(passIn="none"):
+  # try/except for debuging and catching errors
+  try:
 
+    # Set the output type to json as the REST API accepts json in and sends JSON out.
+    setContentType("json")
+    
+    try:
+      # Check to see if we have received a variable directly (someone in this .py called the function)
+      # If not then some one external made a REST API call to this function
+      if passIn == "none":
+        # Pulls in the full json sent to the endpoint
+        jsonIn = request.json
+        print ("Received JSON")
+      else:
+        jsonIn = passIn
+        print ("Did not get JSON")
+    except Exception :
+      # log
+      log.error("Empty or invalid request")
+      return {"error" : "Empty or invalid request"}
+    # list of required parameters that are needed to schedule a class.
+    # when expanding in future, add new required parameters to this list in order for the new parameters to be accounted for
+    # (will move to config collection in boruDB..................................................................................)
+    listOfRequiredParameters = ['sender', 'instructor', 'numberOfSubOrgs', 'course', 'sensor', 'region', 'tag', 'startDate', 'finishDate', 'timezone', 'suspend']
+
+    # There are 3 blocks of paramenters to vaildate
+    #  1. the 'listOfRequiredParameters' from above must be in the request
+    #  2. any list parameters in db.courses('courseParameters')
+    #  3. any non static parameters in db.courese('cloudFormationParameters')
+
+    # ----------------------------------------------------------------------
+    # Validating additional cloudFormation parameters required by the course
+    # ----------------------------------------------------------------------
+
+    # this list will be appended with inforamtion based on the name of the course the user specifed
+    listOfAdditionalCloudFormationParameters = []
+
+    # the main json that will contain all the parameters and their information for the request
+    requestInformation = { }
+
+    # get course name from the request to validate additional parameters (if course does not exits, requestCourseName will be null)
+    requestCourseName = jsonIn.get("course")
+
+    # append additional course parameters to an array as well as their type(used to validate user input if type is a lisr or plugin-list)
+    getCourseAdditionalCloudFormationParameters(requestCourseName, listOfAdditionalCloudFormationParameters)
+
+    for additionalParameter in listOfAdditionalCloudFormationParameters:
+      # small 'buffer' named 'requestParameter' that takes in the additionalParameter name and the input from the user.
+      requestParameter = { additionalParameter : jsonIn.get(additionalParameter) }
+
+      # validate that the additionalParameter required by the course has been passed in by user in request
+      if((requestParameter.get(additionalParameter) is None) or (requestParameter.get(additionalParameter) is "")):
+        log.warning("User input '{}' missing from request.".format(additionalParameter))
+        error = "Failed to schedule class: '{}' is missing from your request. Required additional parameters for course: {} are: {} and {}".format(additionalParameter, str(requestCourseName), listOfRequiredParameters, listOfAdditionalCloudFormationParameters)
+        return {"error" : error}
+      else:
+        # add the valid parameter to requestInformation
+        requestInformation.update(requestParameter)
+
+    # ==========================================================================================================================================
+
+    # ----------------------------------------------------------
+    # Validating required notification parameters for therequest
+    # ----------------------------------------------------------
+
+    listOfAdditionalNotificationParameters = []
+
+    getCourseAdditionalNotificationParameters(requestCourseName, listOfAdditionalNotificationParameters)
+
+    for additionalParameter in listOfAdditionalNotificationParameters:
+      # small 'buffer' named 'requestParameter' that takes in the additionalParameter name and the input from the user.
+      requestParameter = { additionalParameter : jsonIn.get(additionalParameter) }
+
+      # validate that the additionalParameter required by the course has been passed in by user in request
+      if((requestParameter.get(additionalParameter) is None) or (requestParameter.get(additionalParameter) is "")):
+        log.warning("User input '{}' missing from request.".format(additionalParameter))
+        error = "Failed to schedule class: '{}' is missing from your request. Required additional parameters for course: {} are: Required Parameters: {} and, Additional Parameters For Course: {} and, Notification Parameters: {}".format(additionalParameter, str(requestCourseName), listOfRequiredParameters, listOfAdditionalCloudFormationParameters, listOfAdditionalNotificationParameters)
+        return {"error" : error}
+      else:
+        # add the valid parameter to requestInformation
+        requestInformation.update(requestParameter)
+
+    # ==========================================================================================================================================
+
+    # -----------------------------------------------------
+    # Validating normal required parameters for the request
+    # -----------------------------------------------------
+
+    # loop throuth all parameters and append the 'requestInformation' json
+    for parameter in listOfRequiredParameters:
+      # small 'buffer' named 'requestParameter' that takes in the parameter name and the input from the user.
+      requestParameter = { parameter : jsonIn.get(parameter) }
+      
+      #1 - validate the parameter passed in by user is in present
+      if((requestParameter.get(parameter) is None)  or (requestParameter.get(parameter) is "")):
+        log.warning("User input '{}' missing from request.".format(parameter))
+        error = "Failed to schedule class: '{}' is missing from your request. List of Required Parameters: {}".format(parameter, str(listOfRequiredParameters))
+        return {"error" : error}
+      #2 - add the 'requestParameter' buffer parameter to 'requestInformation' json object
+      else:
+        requestInformation.update(requestParameter)
+    # after all parameters, log gathered info
+    log.info("User request information: {}".format(requestInformation))
+
+    # -------------------------------------------------------------------
+    # last step, check for any extra inputs from the user and reject them
+    # -------------------------------------------------------------------
+
+    listOfAllWantedRequestKeys = listOfRequiredParameters + listOfAdditionalCloudFormationParameters + listOfAdditionalNotificationParameters
+    requestListOfKeys = []
+    # append requestListOfKeys with request.json
+    for item in jsonIn:
+      requestListOfKeys.append(item)
+    # go through each item in list 'listOfAllWantedRequestKeys' and remove it from the list 'requestListOfKey'; if it is found
+    for item in listOfAllWantedRequestKeys:
+      try:
+        requestListOfKeys.remove(item)
+      except:
+        requestListOfKeys.remove(item)
+    # check for leftovers
+    if(requestListOfKeys):
+      log.info("Failed to schedule class: Parameters: '{}' provided by user should not be in the request.".format(requestListOfKeys))
+      error = "Failed to schedule class: Parameters: '{}' should not be in the request.".format(str(requestListOfKeys))
+      return {"error" : error}
+
+
+    # ----------------------------------------------------------------
+    # pass information to RequestHandler for validation and processing
+    # ----------------------------------------------------------------
+
+    # hand off the request to RequestHandler.py
+    requestHandlerConfirmation = RequestHandler.insertAwsClass(requestInformation)
+
+    # return the response to the user (will need to be modified to make it look nice)
+    return requestHandlerConfirmation
+
+  # try/except for debuging and catching errors
+  except Exception as e:
+    # logging
+    log.error("Failed to schedule class. Error: {}".format(str(e)))
+# --------------------
+# --------------------
+def getCourseAdditionalCloudFormationParameters(requestCourseName, listOfAdditionalCloudFormationParameters):
+  # mongo setup
+  mongoClient = pymongo.MongoClient()
+  mongodb = mongoClient.boruDB
+  # getting all courses
+  allCourses = mongodb.courses.find()
+  # getting course name from request
+  requestCourse = requestCourseName
+  # appending the additional parameters to listOfAdditionalCloudFormationParameters
+  for course in allCourses:
+    if(course['courseName'] == requestCourse):
+      for additionalParam in course['cloudFormationParameters']:
+        # skip over the static parameters as they are not required by the user
+        if((additionalParam['paramType'] != "static") and (additionalParam['paramType'] != "plugin-static")):
+          listOfAdditionalCloudFormationParameters.append(additionalParam['paramKey'])
+  # closing mongo connection
+  mongoClient.close()
+
+def getCourseAdditionalNotificationParameters(requestCourseName, listOfAdditionalNotificationParameters):
+  # mongo setup
+  mongoClient = pymongo.MongoClient()
+  mongodb = mongoClient.boruDB
+  # getting all courses
+  allCourses = mongodb.courses.find()
+  # getting course name from request
+  requestCourse = requestCourseName
+  # appending the additional parameters to listOfAdditionalNotificationParameters
+  for course in allCourses:
+    if(course['courseName'] == requestCourse):
+      for additionalParam in course['notifications']:
+        # skip over the static parameters as they are not required by the user (will be added in requestHandler)
+        if(additionalParam['notificationType'] != "static"):
+          listOfAdditionalNotificationParameters.append(additionalParam['notificationKey'])
+  # closing mongo connection
+  mongoClient.close()
 
 '''
 ██╗    ██╗███████╗██████╗ 
@@ -871,7 +1056,7 @@ def extendJob(jobId):
 # Extend Job in the Database
 # ----------------
 @app.route('/scheduleClass', method='GET')
-def getScheduleClass():
+def getWebScheduleClass():
   
   output = collections("courses")
 
@@ -894,7 +1079,7 @@ def getScheduleClass():
   return template('getClass', output=output)
 
 @app.route('/scheduleClass', method='POST')
-def postScheduleClass():
+def postWebScheduleClass():
   
   courseName = request.forms.get('course')
   #print ("Course Name: ", courseName)
@@ -917,6 +1102,20 @@ def postScheduleClass():
     if doc['courseName'] == courseName:
       courseJSON = doc
   
+  outputConfig = collections("config")
+  #print ("Output: ", output)
+
+  if ((type(outputConfig) is dict)):
+    if (outputConfig['error']):
+      #print ("ERROR - EXIT", output['error'])
+      # Set content type to HTML before returning it
+      # This has to be set before the return as calling the REST API sets content_type to json
+      setContentType("html")
+      log.warning(outputConfig['error'])
+      return template('error', error=outputConfig['error'])
+
+  configJSON = json.loads(outputConfig)
+
   #print ("Single Course: ", courseJSON)
 
   # Set content type to HTML before returning it
@@ -924,17 +1123,25 @@ def postScheduleClass():
   setContentType("html")
 
   # Send output to extendJob.tpl
-  return template('classParameters', output=courseJSON)
+  return template('classParameters', output=courseJSON, config=configJSON)
 
   
 @app.route('/submitClass', method='POST')
 def postSubmitClass():
   
   output = request.forms
-  for x in output:
-    print(x,output[x])
+  pythonDict = {}
+  print (type(output))
 
-  
+  for x in output:
+    print(x, output[x])
+    pythonDict[x]=output[x]
+    
+
+
+  print (pythonDict)
+  print (type(pythonDict))
+
   return template('output', output=output)
 
 
