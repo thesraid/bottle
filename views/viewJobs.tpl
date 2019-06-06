@@ -38,7 +38,7 @@
 %end
 
 %if summary:
-Show summary only
+.
 %end
 
 %import json

@@ -27,7 +27,7 @@ numberOfSubOrgs: <select name="numberOfSubOrgs">
 % end
 </select><br/>
 
-sensor: <select name="sensor"><option value="true">yes</option><option value="false">no</option></select><br/>
+sensor: <select name="sensor"><option value="yes">yes</option><option value="no">no</option></select><br/>
 
 % for doc in config:
 %   for title in doc:
@@ -42,7 +42,7 @@ sensor: <select name="sensor"><option value="true">yes</option><option value="fa
 %                for l in v:
                   
 %                  for o, p in l.items():
-                    <option value="{{p}}">{{o}}</option>
+                    <option value="{{o}}">{{o}}</option>
 %                  end
 
 
@@ -73,9 +73,9 @@ sensor: <select name="sensor"><option value="true">yes</option><option value="fa
 tag: <input type="text" name="tag"><br/>
 
 
-startDate: <input type="date" name="startDate"><br/>
+startDate: <input type="date" name="startDate"> &nbsp; <input type="checkbox" name="startDate" value="now"> Now<br>
 finishDate: <input type="date" name="finishDate""><br/>
-suspend: <select name="suspend"><option value="true">yes</option><option value="false">no</option></select><br/>
+suspend: <select name="suspend"><option value="yes">yes</option><option value="no">no</option></select><br/>
 
 
 % for k, v in sorted(output.items()):
@@ -97,12 +97,7 @@ suspend: <select name="suspend"><option value="true">yes</option><option value="
 {{x['paramKey']}}: <input type="text" name="{{x['paramKey']}}"><br/>
 % elif x['paramType'] == 'prompt':
 {{x['paramKey']}}: <input type="text" name="{{x['paramKey']}}"><br/>
-% elif x['paramType'] == 'static':
-<input type="hidden" name="{{x['paramKey']}}" value="{{x['paramValue']}}"/>
-{{x['paramKey']}}: {{x['paramValue']}}<br/>
-% elif x['paramType'] == 'plugin-static':
-<input type="hidden" name="{{x['paramKey']}}" value="{{x['paramValue']}}"/>
-{{x['paramKey']}}: {{x['paramValue']}}<br/>
+
 
 % elif x['paramType'] == 'list':
 {{x['paramKey']}} : 
@@ -132,9 +127,7 @@ suspend: <select name="suspend"><option value="true">yes</option><option value="
 % if x['notificationType'] == 'prompt':
 {{x['notificationKey']}}: <input type="text" name="{{x['notificationKey']}}"><br/>
 
-% elif x['notificationType'] == 'static':
-<input type="hidden" name="{{x['notificationKey']}}" value="{{x['recipients']}}"/>
-{{x['notificationKey']}}: {{x['recipients']}}<br/>
+
 
 % elif x['notificationType'] == 'list':
 {{x['notificationKey']}} : 

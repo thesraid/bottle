@@ -31,12 +31,12 @@ import RequestHandler
 # ------------
 # logger setup
 # ------------
-logging.basicConfig(filename='/var/log/boru.log',level=logging.INFO, format="%(asctime)s: %(levelname)s: [WebAPI] %(message)s")
+logging.basicConfig(filename='/var/log/boru.log',level=logging.INFO, format="%(asctime)s: [WebAPI] %(levelname)s: %(message)s")
 log = logging.getLogger('boru')
 # Only boru service (scheduler) will log to journal
 #log.addHandler(JournalHandler())
 
-#log.info("Starting...")
+log.info("Starting...")
 
 app = application = bottle.Bottle()
 
@@ -646,6 +646,13 @@ def extendEntry(passIn="none"):
 # performs a post, validating and scheduling a class
 @app.post('/api/scheduleClass')
 def postScheduleClass(passIn="none"):
+
+  # list of required parameters that are needed to schedule a class.
+  # when expanding in future, add new required parameters to this list in order for the new parameters to be accounted for
+  # (will move to config collection in boruDB..................................................................................)
+  listOfRequiredParameters = ['sender', 'instructor', 'numberOfSubOrgs', 'course', 'sensor', 'region', 'tag', 'startDate', 'finishDate', 'timezone', 'suspend']
+
+
   # try/except for debuging and catching errors
   try:
 
@@ -665,11 +672,13 @@ def postScheduleClass(passIn="none"):
     except Exception :
       # log
       log.error("Empty or invalid request")
-      return {"error" : "Empty or invalid request"}
-    # list of required parameters that are needed to schedule a class.
-    # when expanding in future, add new required parameters to this list in order for the new parameters to be accounted for
-    # (will move to config collection in boruDB..................................................................................)
-    listOfRequiredParameters = ['sender', 'instructor', 'numberOfSubOrgs', 'course', 'sensor', 'region', 'tag', 'startDate', 'finishDate', 'timezone', 'suspend']
+      return {"error" : "Empty or invalid request. List of Required Parameters: {}".format(listOfRequiredParameters)}
+
+
+    # Verifies that JSON is present and contains an _id option
+    if not jsonIn:
+      #print("Empty or invalid request _id required")
+      return {"error" : "Empty or invalid request. List of Required Parameters: {}".format(listOfRequiredParameters)}
 
     # There are 3 blocks of paramenters to vaildate
     #  1. the 'listOfRequiredParameters' from above must be in the request
@@ -1131,19 +1140,23 @@ def postSubmitClass():
   
   output = request.forms
   pythonDict = {}
-  print (type(output))
 
+  
   for x in output:
-    print(x, output[x])
+    #print (x, output[x])
     pythonDict[x]=output[x]
     
-
+  job = postScheduleClass(pythonDict)
 
   print (pythonDict)
-  print (type(pythonDict))
+  print (job)
+  setContentType("html")
 
-  return template('output', output=output)
-
+  if job is None:
+    job = {"error" : "Empty response received from REST API postScheduleClass function"}
+    log.error("Empty response received from REST API postScheduleClass function")
+  
+  return template('output', output=job)
 
 #---------------------------------------------------------------------------------------------------
 class StripPathMiddleware(object):

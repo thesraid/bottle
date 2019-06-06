@@ -36,7 +36,6 @@ datetimeFormat = "%Y-%m-%d"
 # ==============================================================================================
 
 def insertAwsClass(request):
-
   # ----------------
   # mongo connection
   # ----------------
@@ -146,8 +145,8 @@ def insertAwsClass(request):
     error = "Failed to schedule class: 'finishDate' format is incorrect. Use: 'YYYY-MM-DD'"
     return {"error": error}
 
-
 # ====
+
    # getting currentTimeInUTC (used with 'now')
   currentTimeInUTC = datetime.datetime.utcnow()
 
@@ -189,6 +188,7 @@ def insertAwsClass(request):
   addSuspendAndResumeDates(request, listOfSuspendTimes, listOfResumeTimes)
 
   # removing timezone from datetime object, it is no longer needed and it creates Error: can't compare offset-naive and offset-aware datetimes
+
   request['startDate'] = (request['startDate']).replace(tzinfo = None)
   request['finishDate'] = (request['finishDate']).replace(tzinfo = None)
 
@@ -211,7 +211,7 @@ def insertAwsClass(request):
     log.warning("[RequestHandler] Failed to schedule class: 'finishDate':'{}' provided by user is before 'startDate':'{}'.".format(request['startDate'], request['finishDate']))
     error = "Failed to schedule class: 'finishDate' must be after 'startDate'."
     return {"error": error}
-
+  
   # validating sensor input is yes or no
   response = validateSensor(request)
   if(not response):
@@ -355,6 +355,30 @@ def validateCourseAdditionalListParameters(request, mongodb, log):
   return [True, "not-used", userAdditionalCourseListParametersInput]
 
 def validateNotificationParameters(request, mongodb, log):
+  allCourses = mongodb.courses.find()
+  # getting course name from request
+  requestCourse = request['course']
+  # validate
+  # finding all course['notifications'] for the course specified in the request
+  for course in allCourses:
+    if(course['courseName'] == requestCourse):
+      # looping through each notification looking only at prompt and list below
+      for notificationParam in course['notifications']:
+        # validating only list because static has no user input
+        if(notificationParam['notificationType'] == "list"):
+          # looping through every item in the request looking foa a matching 'notificationKey' on both
+          for requestParam in request:
+            # if a match is found, check if it is in a form of a list, not anything eles
+            if(str(notificationParam['notificationKey']) == str(requestParam)):
+              # validate
+              if(request[requestParam] not in notificationParam['validInput']):
+                print(request[requestParam])
+                print(notificationParam['validInput'])
+                return [False, str(requestParam), str(request[notificationParam['notificationKey']]), "Invalid input. Valid inputs: {}".format(str(notificationParam['validInput']))]
+  # success, all validated
+  return [True, "N/A", "N/A", "N/A"]
+'''
+def validateNotificationParameters(request, mongodb, log):
   # before anything, we need to validate the notification parameters are in a form of a dict not str.
   allCourses = mongodb.courses.find()
   # getting course name from request
@@ -385,7 +409,7 @@ def validateNotificationParameters(request, mongodb, log):
                     return [False, str(requestParam), str(request[notificationParam['notificationKey']]), "Invalid list input. Valid inputs: {}".format(str(listValidInput))]
   # success, all validated
   return [True, "N/A", "N/A", "N/A"]
-
+'''
 def appendNotificationsListToRequest(request, mongodb, log):
   try:
     # buffer for the new 'notifcations' document in the job
