@@ -4,7 +4,6 @@
   background-color: #777;
   color: white;
   cursor: pointer;
-  padding: 18px;
   width: 100%;
   border: none;
   text-align: left;
@@ -17,10 +16,8 @@
 }
 
 .content {
-  padding: 0 18px;
   display: none;
   overflow: hidden;
-  background-color: #f1f1f1;
 }
 </style></head>
 
@@ -30,7 +27,6 @@
   <!-- View Jobs -->
   <div class="w3-container" id="services" style="margin-top:75px">
     <h1 class="w3-xxxlarge w3-text-red"><b>View {{pageName}}</b></h1>
-    <hr style="width:50px;border:5px solid red" class="w3-round">
 
 %summary = False
 %if pageName != "Job":

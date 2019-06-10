@@ -36,7 +36,7 @@ log = logging.getLogger('boru')
 # Only boru service (scheduler) will log to journal
 #log.addHandler(JournalHandler())
 
-log.info("Starting...")
+#log.info("Starting...")
 
 app = application = bottle.Bottle()
 
@@ -1143,7 +1143,7 @@ def postSubmitClass():
 
   
   for x in output:
-    #print (x, output[x])
+    print (x, output[x])
     pythonDict[x]=output[x]
     
   job = postScheduleClass(pythonDict)

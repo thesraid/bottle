@@ -102,8 +102,8 @@ def insertAwsClass(request):
     error = "Failed to schedule class: 'timezone' is not valid. List of valid timezones: {}".format(response[1])
     return {"error": error}
 
-  # converting the Region form user input to format read by all the scripts and plugins and adding it to the job
-  response = convertRegion(request, mongodb)
+  # validating region
+  response = validateRegion(request, mongodb)
   if(not response[0]):
     # closing mongo connection
     mongoClient.close()
@@ -111,9 +111,6 @@ def insertAwsClass(request):
     log.warning("[RequestHandler] Failed to schedule class: '{}' provided by user is not valid: Valid List'{}'".format(str(request['region']), str(response[1])))
     error = "Failed to schedule class: 'region' is not valid. List of valid regions: {}".format(response[1])
     return {"error": error}
-  else:
-    # set the new region
-    request['region'] = response[2]
 
   # validating finishDate is not 'now'
   response = validateFinishDateIsNotNow(request)
@@ -145,10 +142,16 @@ def insertAwsClass(request):
     error = "Failed to schedule class: 'finishDate' format is incorrect. Use: 'YYYY-MM-DD'"
     return {"error": error}
 
-# ====
 
-   # getting currentTimeInUTC (used with 'now')
+
+  # getting currentTimeInUTC (used with 'now')
   currentTimeInUTC = datetime.datetime.utcnow()
+
+  
+
+  print("\nHERE:0\n")
+
+  # ====
 
   # check if startDate == 'now'
   # if so, use the 'currentTimeInUTC' to fill in the date
@@ -179,6 +182,19 @@ def insertAwsClass(request):
   # Convert the FinishDate to 'UTC' (We do not convert 'now' as it is in UTC, for 'now' used 'pytz.utc.localize')
   request['finishDate'] = convertTimezone(request['finishDate'], request['timezone'])
 
+  # removing timezone from datetime object, it is no longer needed and it creates Error: can't compare offset-naive and offset-aware datetimes
+  request['startDate'] = (request['startDate']).replace(tzinfo = None)
+  request['finishDate'] = (request['finishDate']).replace(tzinfo = None)
+
+  response = validateFinishDateIsInTheFuture(request, currentTimeInUTC)
+  if(not response[0]):
+    # closing mongo connection
+    mongoClient.close()
+    # logging
+    log.warning("[RequestHandler] Failed to schedule class: 'finishDate':'{}' provided by user is not in the future. '{}'".format(request['finishDate'], str(response[1])))
+    error = "Failed to schedule class: 'finishDate' provided by user is not in the future."
+    return {"error": error}
+
   # Next, Generate suspend and Resum e times in 'UTC'
   listOfSuspendTimes = []
   listOfResumeTimes = []
@@ -187,10 +203,9 @@ def insertAwsClass(request):
   generateSuspendAndResumeTimes(request, listOfSuspendTimes, listOfResumeTimes)
   addSuspendAndResumeDates(request, listOfSuspendTimes, listOfResumeTimes)
 
-  # removing timezone from datetime object, it is no longer needed and it creates Error: can't compare offset-naive and offset-aware datetimes
+  
 
-  request['startDate'] = (request['startDate']).replace(tzinfo = None)
-  request['finishDate'] = (request['finishDate']).replace(tzinfo = None)
+  print("\nHERE:1\n")
 
   # validating startDate is in the future
   response = validateStartDateIsInFuture(request, currentTimeInUTC)
@@ -201,6 +216,8 @@ def insertAwsClass(request):
     log.warning("[RequestHandler] Failed to schedule class: 'startDate':'{}' provided by user is not in future.".format(request['startDate']))
     error = "Failed to schedule class: 'startDate' must be in the future."
     return {"error": error}
+
+  print("\nHERE:2\n")
 
   # validating finishDate is bigger than startDate
   response = validateFinishDateIsBiggerThanStartDate(request)
@@ -303,6 +320,16 @@ def validateAndConvertNumberOfSubOrgsToInt(request):
   except:
     return False
 
+def validateFinishDateIsInTheFuture(request, currentTimeInUTC):
+  try:
+    print("request['finishDate'] :", request['finishDate'])
+    print("currentTimeInUTC :", currentTimeInUTC)
+    if(request['finishDate'] > currentTimeInUTC):
+      return [True, "N/A"]
+    else:
+      return [False, "N/A"]
+  except Exception as e:
+    return [False, str(e)]
 
 def validateCourse(request, mongodb):
   # getting all courses
@@ -377,39 +404,7 @@ def validateNotificationParameters(request, mongodb, log):
                 return [False, str(requestParam), str(request[notificationParam['notificationKey']]), "Invalid input. Valid inputs: {}".format(str(notificationParam['validInput']))]
   # success, all validated
   return [True, "N/A", "N/A", "N/A"]
-'''
-def validateNotificationParameters(request, mongodb, log):
-  # before anything, we need to validate the notification parameters are in a form of a dict not str.
-  allCourses = mongodb.courses.find()
-  # getting course name from request
-  requestCourse = request['course']
-  # validate (oh god... this... works, good for now :( ugliest function ever... will change later))
-  # finding all course['notifications'] for the course specified in the request
-  for course in allCourses:
-    if(course['courseName'] == requestCourse):
-      # looping through each notification looking only at prompt and list below
-      for notificationParam in course['notifications']:
-        # validating only prompt and list as static has no user input
-        if((notificationParam['notificationType'] == "prompt") or (notificationParam['notificationType'] == "list")):
-          # looping through every item in the request looking foa a matching 'notificationKey' on both
-          for requestParam in request:
-            # if a match is found, check if it is in a form of a list, not anything eles
-            if(str(notificationParam['notificationKey']) == str(requestParam)):
-              # python function isinstance
-              if(isinstance(request[requestParam], list) == False):
-                return [False, str(requestParam), str(request[notificationParam['notificationKey']]), "Value is not a list"]
-              # if this is of type 'list', check valid input was entered as the key:value in the request
-              if(notificationParam['notificationType'] == "list"):
-                listValidInput = notificationParam['validInput']
-                listRequestInput = request[requestParam]
-                # check if the user input is in 'listValidInput'
-                for item in listRequestInput:
-                  # if any item in the request does not match, return
-                  if(item not in listValidInput):
-                    return [False, str(requestParam), str(request[notificationParam['notificationKey']]), "Invalid list input. Valid inputs: {}".format(str(listValidInput))]
-  # success, all validated
-  return [True, "N/A", "N/A", "N/A"]
-'''
+
 def appendNotificationsListToRequest(request, mongodb, log):
   try:
     # buffer for the new 'notifcations' document in the job
@@ -484,20 +479,6 @@ def validateTimezoneInDB(request, mongodb):
       return [True, listOfSupportedTimezones]
   # not found, return false
   return [False, listOfSupportedTimezones]
-
-def validateRegionInDB(request, mongodb):
-  # get all regions in db
-  config = mongodb.config.find()
-  for item in config:
-    if(item['key'] == "region"):
-      listOfSupportedRegions = item['regions']
-      break
-  # compare the user request environment with all the ones in the database
-  for validRegion in listOfSupportedRegions:
-    if(validRegion == request['region']):
-      return [True, listOfSupportedRegions]
-  # not found, return false
-  return [False, listOfSupportedRegions]
 
 def validateFinishDateIsNotNow(request):
   if(request['finishDate'] == 'now'):
@@ -619,7 +600,7 @@ def addStandardInformationToRequest(request):
 
 # ---
 
-def convertRegion(request, mongodb):
+def validateRegion(request, mongodb):
   try:
     # Get the environment based on request['course'] and db.config collection
     courseName = request['course']
@@ -639,29 +620,16 @@ def convertRegion(request, mongodb):
         for k in j.keys():
           if(k == environment):
             for l in j.values():
-              myList.append(l)
-    # lists used to store region keys and values from the config collection
-    listOfRegionKeys = []
-    listOfRegionValues = []
-    # getting these config values into the lists
-    for i in myList:
-      for j in i:
-        key = j.keys()
-        for k in key:
-          listOfRegionKeys.append(k)
-        value = j.values()
-        for l in value:
-          listOfRegionValues.append(l)
-    # looking for the one user entered
-    # if found return the value based on the key from the lists
-    for index in range(len(listOfRegionKeys)):
-      if(str(region) == str(listOfRegionKeys[index])):
-        return[True, listOfRegionKeys, listOfRegionValues[index]]
-    # notifu the user their input is invalid
-    return[False, listOfRegionKeys, "N/A"]
+              myList = l
+    print("\n\nLIST:", myList, "\n\n")
+    if(region in myList):
+        return[True, myList]
+    else:
+      # notify the user their input is invalid
+      return[False, myList]
   # in case if the db.config breaks with bad admin input
   except Exception as e:
-    return[False, str(e), "N/A"]
+    return[False, str(e)]
 
 def insertRequestToScheduledJobs(request, mongodb):
   mongodb.scheduledJobs.insert_one(request)

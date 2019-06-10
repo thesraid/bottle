@@ -5,24 +5,12 @@
 <head>
     <!-- CSS -->
     <style>
-html {
-    font-family: 'Roboto', sans-serif;
-}
-h1 {
-    text-align: center;
-}
-p {
-    text-align: center;
-}
-form {
-    text-align: center;
-}
+
 input[type=text] {
     width: 80%;
     padding: 6px 0;
     border: 1px solid #ccc;
     font-size:16px;
-    background-color: w;
 }
 input[type=submit] {
     width: 80%;
@@ -35,13 +23,6 @@ input[type=submit] {
 input[type=submit]:hover {
     background-color: #4ac44f;
 }
-#theForm {
-    border-radius: 10px;
-    padding: 20px;
-    margin-left: 30%;
-    margin-right: 30%;
-    background-color: #e0e0e0;
-}
     </style>
     
     <title>Schedule Class</title>
@@ -49,7 +30,9 @@ input[type=submit]:hover {
 <body>
     <h1>Schedule Class</h1>
     <!-- The Form -->
+    <br><br>
     <div id="theForm">
+    <br>
     <form action="/boru/scheduleClass" method="post">
         
         Sender(will be hidden):<br>

@@ -3,7 +3,7 @@
 
 <div align="left">
 <button onclick="goBack()">Go Back</button>
-
+<br>
 <script>
 function goBack() {
   window.history.back();
@@ -11,39 +11,39 @@ function goBack() {
 </script>
 
 % cloud = (output['environment'])
-
+<br>
 <form action="/submitClass" method="post">
-<p>&nbsp;</p>
+<table>
 
 %# The following are required for every request and are not stored in the course document in the database
 
-sender: <input type="text" name="sender"><br/>
-instructor: <input type="text" name="instructor"><br/>
+<tr><td>sender:</td><td><input type="text" name="sender"></td></tr>
+<tr><td>instructor:</td><td><input type="text" name="instructor"></td></tr>
 
 
-numberOfSubOrgs: <select name="numberOfSubOrgs">
-% for num in range(20):
+<tr><td>numberOfSubOrgs</td><td><select name="numberOfSubOrgs">
+% for num in range(1,21):
 <option value={{num}}>{{num}}</option>
 % end
-</select><br/>
+</select></td></tr>
 
-sensor: <select name="sensor"><option value="yes">yes</option><option value="no">no</option></select><br/>
+<tr><td>sensor</td><td><select name="sensor"><option value="yes">yes</option><option value="no">no</option></select></td></tr>
 
 % for doc in config:
 %   for title in doc:
 %     if title not in ["_id", "key"]:
 
 %        if title == "region":
-          {{title}}:<select name="region">
+          <tr><td>{{title}}</td><td><select name="region">
 %          for cloudList in (doc[title]):
 
 %             for k, v in cloudList.items():
 %              if k == cloud:
 %                for l in v:
+
                   
-%                  for o, p in l.items():
-                    <option value="{{o}}">{{o}}</option>
-%                  end
+
+                    <option value="{{l}}">{{l}}</option>
 
 
 %               end
@@ -53,29 +53,28 @@ sensor: <select name="sensor"><option value="yes">yes</option><option value="no"
 
 %          end
 
-          </select> <br/>
+          </select></td></tr>
 
 %       else:
-        {{title}}:
+        <tr><td>{{title}}</td><td>
         % listOfItems = doc[title]
         <select name="{{title}}">
         %for item in listOfItems:
           <option value="{{item}}">{{item}}</option>
         %end
-        </select>
-        <br/>
+        </select></td></tr>
 
 %       end
 %     end
 %   end
 % end
 
-tag: <input type="text" name="tag"><br/>
+<tr><td>tag</td><td><input type="text" name="tag"></td></tr>
 
 
-startDate: <input type="date" name="startDate"> &nbsp; <input type="checkbox" name="startDate" value="now"> Now<br>
-finishDate: <input type="date" name="finishDate""><br/>
-suspend: <select name="suspend"><option value="yes">yes</option><option value="no">no</option></select><br/>
+<tr><td>startDate</td><td><input type="date" name="startDate"></td><td><input type="checkbox" name="startDate" value="now"> Now</td></tr>
+<tr><td>finishDate</td><td><input type="date" name="finishDate"></td></tr>
+<tr><td>suspend</td><td><select name="suspend"><option value="yes">yes</option><option value="no">no</option></select></td></tr>
 
 
 % for k, v in sorted(output.items()):
@@ -85,35 +84,34 @@ suspend: <select name="suspend"><option value="yes">yes</option><option value="n
 % if k in ["_id", "sensorParameters", "courseTemplate", "environment", "resumeScriptName", "sensorTemplate", "startScriptName", "suspendScriptName", "finishScriptName"]:
 % pass
 
-%elif k == "courseName":
-<input type="hidden" name="course" value="{{v}}"/>
-{{k}} : {{v}} <br/>
+
 % elif k == "cloudFormationParameters":
-<br/><b>cloudFormationParameters:</b> <br/>
+<tr><td> &nbsp; </td><td> &nbsp; </td></tr>
+<tr><td><b>Cloud Parameters</b></td><td> &nbsp; </td></tr>
 
 % for x in v:
 
 % if x['paramType'] == 'plugin-prompt':
-{{x['paramKey']}}: <input type="text" name="{{x['paramKey']}}"><br/>
+<tr><td>{{x['paramKey']}}</td><td><input type="text" name="{{x['paramKey']}}"></td></tr>
 % elif x['paramType'] == 'prompt':
-{{x['paramKey']}}: <input type="text" name="{{x['paramKey']}}"><br/>
+<tr><td>{{x['paramKey']}}</td><td><input type="text" name="{{x['paramKey']}}"></td></tr>
 
 
 % elif x['paramType'] == 'list':
-{{x['paramKey']}} : 
+<tr><td>{{x['paramKey']}}</td><td> 
 <select name="{{x['paramKey']}}">
 % for z in x['paramValidInput']:
 <option value={{z}}>{{z}}</option>
 % end
-</select><br/>
+</select></td></tr>
 
 % elif x['paramType'] == 'plugin-list':
-{{x['paramKey']}} : 
+<tr><td>{{x['paramKey']}}</td><td>
 <select name="{{x['paramKey']}}">
 % for z in x['paramValidInput']:
 <option value={{z}}>{{z}}</option>
 % end
-</select><br/>
+</select></td></tr>
 
 % end
 
@@ -121,21 +119,22 @@ suspend: <select name="suspend"><option value="yes">yes</option><option value="n
 % end
 
 % elif k == "notifications":
-<br/><b>notifications:</b> <br/>
+<tr><td><b> &nbsp; </b></td><td> &nbsp; </td></tr>
+<tr><td><b>Notifications:</b></td><td> &nbsp; </td></tr>
 
 % for x in v:
 % if x['notificationType'] == 'prompt':
-{{x['notificationKey']}}: <input type="text" name="{{x['notificationKey']}}"><br/>
+<tr><td>{{x['notificationKey']}}</td><td><input type="text" name="{{x['notificationKey']}}"></td></tr>
 
 
 
 % elif x['notificationType'] == 'list':
-{{x['notificationKey']}} : 
+<tr><td>{{x['notificationKey']}}</td><td>
 <select name="{{x['notificationKey']}}">
 % for z in x['validInput']:
 <option value={{z}}>{{z}}</option>
 % end
-</select>
+</select></td></tr>
 
 % end
 
@@ -143,15 +142,19 @@ suspend: <select name="suspend"><option value="yes">yes</option><option value="n
 
 % end
 
-%else:
-<br/>
-<input type="hidden" name="{{k}}" value="{{v}}"/>
-{{k}} : {{v}} <br/>
-% end
-% end
+%elif k == "courseName":
+<tr><td><input type="hidden" name="course" value="{{v}}"/>
+{{k}}</td><td>{{v}}</td></tr>
 
+%else:
+<tr><td><input type="hidden" name="{{k}}" value="{{v}}"/>
+{{k}}</td><td>{{v}}</td></tr>
+% end
+% end
+</table>
 <input type="submit" value="Submit">
 </form>
+
 
 </div>
 
