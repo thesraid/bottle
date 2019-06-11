@@ -12,10 +12,14 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 import json
 
+# This is needed to import the boru python config file
+import sys
+sys.path.insert(0, '/etc/boru/')
+import config
+
 def notify(recipient, job, message="Notification from Boru"):
 
-   # Change to boru
-   sendr = "polar@alien-training.com"
+   sendr = config.getConfig("awsSMTPSender")
 
    msg = MIMEMultipart()
 
@@ -44,7 +48,9 @@ def notify(recipient, job, message="Notification from Boru"):
    server = smtplib.SMTP('email-smtp.us-east-1.amazonaws.com', 587)
    server.starttls()
    #server.set_debuglevel(1)
-   server.login("AKIAIO3UMYK6OVJSPCTQ", "ArKLgWVpIzR25EUt2KCPU+Txb49/nIVnsj+VwuNk6HDp")
+   awsSMTPuser = config.getConfig("awsSMTPuser")
+   awsSMTPpassword = config.getConfig("awsSMTPpassword")
+   server.login(awsSMTPuser, awsSMTPpassword)
    print ("sendr" + sendr)
    print ("recipient" + recipient)
    print ("message" + msg.as_string())

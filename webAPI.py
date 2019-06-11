@@ -26,7 +26,7 @@ import logging
 from bson import ObjectId, errors
 from json import dumps
 from datetime import datetime, timedelta
-import RequestHandler
+import RequestHandler, addSubOrgs
 
 # ------------
 # logger setup
@@ -325,8 +325,8 @@ def viewEntry(passIn="none"):
     mongodb = mongoClient.boruDB
   except Exception as e:
     # log
-    log.error("[WebAPI] Failed to establish connection with mongo: " + str(e))
-    return {"error" : "Failed to establish connection with mongo. Check the logs for more details" }
+    log.error("[WebAPI] Failed to establish connection with mongo: {}".format(str(e)))
+    return {"error" : "Failed to establish connection with mongo: {}".format(str(e))}
 
   # Take the _id received from the sender as a string (embedded in json) and convert to a Mongo Cursor object. 
   # Create a query to find the _id in the database with the string provided by the sender.
@@ -334,7 +334,7 @@ def viewEntry(passIn="none"):
     myquery = { "_id": ObjectId(_id) }
   except Exception as e:
     # log
-    log.error("[WebAPI] " + str(e))
+    log.error("[WebAPI]", str(e))
     return {"error" : (str(e))}
   
   # Find the job using the supplied _id to make sure that it exists and then to return it
@@ -643,6 +643,75 @@ def extendEntry(passIn="none"):
   # Send the success reply to the sender 
   updateEntry = { "NewFinishTime" : newdate, "_id" : _id }
   return dumps(updateEntry, indent=4, sort_keys=True, default=str)
+
+# -----------------
+# POST | addSubOrgs
+# -----------------
+# performs a post, validating and scheduling a class
+@app.post('/api/addSubOrgs')
+def postScheduleClass(passIn="none"):
+  # Required parameters
+  listOfRequiredParameters = ['subOrgName', 'rangeFrom', 'rangeTo', 'environment']
+  # try/except for debuging and catching errors
+  try:
+    # Set the output type to json as the REST API accepts json in and sends JSON out.
+    setContentType("json")
+    try:
+      # Check to see if we have received a variable directly (someone in this .py called the function)
+      # If not then some one external made a REST API call to this function
+      if passIn == "none":
+        # Pulls in the full json sent to the endpoint
+        jsonIn = request.json
+        print ("Received JSON")
+      else:
+        jsonIn = passIn
+        print ("Did not get JSON")
+      # Verifies that JSON is present and contains an _id option
+      if not jsonIn:
+        return {"error" : "Empty or invalid request. List of Required Parameters: {}".format(listOfRequiredParameters)}
+    except Exception :
+      # log
+      log.error("[WebAPI] Empty or invalid request")
+      return {"error" : "Empty or invalid request. List of Required Parameters: {}".format(listOfRequiredParameters)}
+    # -------------------
+    # Add SubOrgs
+    for parameter in listOfRequiredParameters:
+      # small 'buffer' named 'requestParameter' that takes in the parameter name and the input from the user.
+      requestParameter = { parameter : jsonIn.get(parameter) }
+      #1 - validate the parameter passed in by user is in present
+      if((requestParameter.get(parameter) is None)  or (requestParameter.get(parameter) is "")):
+        log.warning("[WebAPI] User input '{}' missing from request.".format(parameter))
+        error = "Failed to schedule class: '{}' is missing from your request. List of Required Parameters: {}".format(parameter, str(listOfRequiredParameters))
+        return {"error" : error}
+
+    # -------------------------------------------------------------------
+    # last step, check for any extra inputs from the user and reject them
+    # -------------------------------------------------------------------
+    listOfAllWantedRequestKeys = listOfRequiredParameters
+    requestListOfKeys = []
+    # append requestListOfKeys with request.json
+    for item in jsonIn:
+      requestListOfKeys.append(item)
+    # go through each item in list 'listOfAllWantedRequestKeys' and remove it from the list 'requestListOfKey'; if it is found
+    for item in listOfAllWantedRequestKeys:
+      try:
+        requestListOfKeys.remove(item)
+      except:
+        requestListOfKeys.remove(item)
+    # check for leftovers
+    if(requestListOfKeys):
+      log.info("[WebAPI] Failed to schedule class: Parameters: '{}' provided by user should not be in the request.".format(requestListOfKeys))
+      error = "Failed to schedule class: Parameters: '{}' should not be in the request.".format(str(requestListOfKeys))
+      return {"error" : error}
+
+    # Pass the request to the script
+    response = addSubOrgs.addSubOrgs(str(jsonIn.get('subOrgName')), str(jsonIn.get('rangeFrom')), str(jsonIn.get('rangeTo')), str(jsonIn.get('environment')))
+    # return the response to the user
+    return response
+
+  except Exception as e:
+    # logging
+    log.error("[WebAPI] Failed to add subOrg. Error: {}".format(str(e)))
 
 # --------------------
 # POST | scheduleClass
@@ -1147,7 +1216,7 @@ def postSubmitClass():
 
   
   for x in output:
-    #print (x, output[x])
+    print (x, output[x])
     pythonDict[x]=output[x]
     
   job = postScheduleClass(pythonDict)

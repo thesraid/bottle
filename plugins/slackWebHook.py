@@ -11,12 +11,17 @@ import requests
 import json
 import logging
 
+# This is needed to import the boru python config file
+import sys
+sys.path.insert(0, '/etc/boru/')
+import config
+
 logging.basicConfig(filename='/var/log/boru.log',level=logging.INFO, format="%(asctime)s: [WebAPI] %(levelname)s: %(message)s")
 log = logging.getLogger('boru')
 
 def notify(recipient, job, message="Notification from Boru"):
   if recipient == "boru":
-    url = "https://hooks.slack.com/services/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" # Move to config.py
+    url = config.getConfig("slackBoruURL")
   else:
     log.info("[slackWebHook] " + str(recipient) + "unknown")
     exit()

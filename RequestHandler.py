@@ -10,6 +10,11 @@ from datetime import timedelta
 import pytz
 from pytz import timezone
 
+# This is needed to import the boru python config file
+import sys
+sys.path.insert(0, '/etc/boru/')
+import config
+
 logging.basicConfig(filename='/var/log/boru.log',level=logging.DEBUG, format="%(asctime)s: %(levelname)s: %(message)s")
 log = logging.getLogger('boru')
 
@@ -20,16 +25,16 @@ log = logging.getLogger('boru')
 # Environments located in config Collection in boruDB
 # Regions located in config Collection in boruDB
 
-# amount of subOrgs limit per class (For testing will use 5)
-subOrgLimitPerClass = 20
+# amount of subOrgs limit per class 
+subOrgLimitPerClass = config.getConfig("subOrgLimitPerClass")
 # amount of all subOrgs to be kept 'free' when validating a request
-freeSubOrgsBuffer = 5
+freeSubOrgsBuffer = config.getConfig("subOrgLimitPerClass")
 # time a class starts
-startHour = 7
-startMinute = 0
+startHour = config.getConfig("subOrgLimitPerClass")
+startMinute = config.getConfig("subOrgLimitPerClass")
 # time a class finished
-finishHour = 19
-finishMinute = 0
+finishHour = config.getConfig("subOrgLimitPerClass")
+finishMinute = config.getConfig("subOrgLimitPerClass")
 # --------------------------------------------------------------------
 # the format datetime uses(don't change unless code below is modified)
 datetimeFormat = "%Y-%m-%d"
