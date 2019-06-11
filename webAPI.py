@@ -106,14 +106,14 @@ def collections(pageName="none"):
       collection = jsonIn['collection']
     except Exception as e:
       #print(str(e))
-      log.warning("Empty or invalid request {'collection' : 'name'} required. Valid names are archivedJobs, courses, failedJobs, scheduledJobs, subOrgs and tasks")
+      log.warning("[WebAPI] Empty or invalid request {'collection' : 'name'} required. Valid names are archivedJobs, courses, failedJobs, scheduledJobs, subOrgs and tasks")
       return {"error" : "Empty or invalid request {'collection' : 'name'} required. Valid names are archivedJobs, courses, failedJobs, scheduledJobs, subOrgs and tasks"}
   else:
     collection = pageName
 
   
   if not collection:
-    log.warning("Invalid request {'_id' : 'jobID'} expected")
+    log.warning("[WebAPI] Invalid request {'_id' : 'jobID'} expected")
     return {"error" : "Empty or invalid request {'collection' : 'name'} required. Valid names are archivedJobs, courses, failedJobs, scheduledJobs, subOrgs and tasks"}
   
   # mongo connection
@@ -125,7 +125,7 @@ def collections(pageName="none"):
     mongodb = mongoClient.boruDB
   except Exception as e:
     # log
-    log.error("Failed to establish connection with mongo: {}".format(str(e)))
+    log.error("[WebAPI] Failed to establish connection with mongo: {}".format(str(e)))
     return {"error" : "Failed to establish connection with mongo: {}".format(str(e))}
 
   # Retrieve the list of jobs and convert from Mongo Cursor format to a list
@@ -143,8 +143,12 @@ def collections(pageName="none"):
     dbOutput=list(mongodb.courses.find())
   elif collection == "config":
     dbOutput=list(mongodb.config.find())
+  elif collection == "currentJobs":
+    scheduledOutput=list(mongodb.scheduledJobs.find({ "startDate" : {"$lte" : datetime.now()},"finishDate" : {"$gte" : datetime.now()} }))
+    failedOutput=list(mongodb.failedJobs.find({ "startDate" : {"$lte" : datetime.now()},"finishDate" : {"$gte" : datetime.now()} }))
+    dbOutput = scheduledOutput + failedOutput
   else:
-    log.warning("Unknown collection {}. Valid names are archivedJobs, courses, failedJobs, scheduledJobs, subOrgs and tasks".format(collection))
+    log.warning("[WebAPI] Unknown collection {}. Valid names are archivedJobs, courses, failedJobs, scheduledJobs, subOrgs and tasks".format(collection))
     return {"error" : "Unknown collection {}. Valid names are archivedJobs, courses, failedJobs, scheduledJobs, subOrgs and tasks".format(collection)}
 
   #print(dbOutput)
@@ -174,13 +178,13 @@ def deleteEntry(passIn="none"):
       jsonIn = passIn
   except Exception:
     # log
-    log.warning("Empty or invalid request {'_id' : 'jobID'} required")
+    log.warning("[WebAPI] Empty or invalid request {'_id' : 'jobID'} required")
     return {"error" : "Empty or invalid request {'_id' : 'jobID'} required"}
 
 
   # Verifies that JSON is present and contains an _id option
   if not jsonIn:
-    log.warning("Empty or invalid request _id required")
+    log.warning("[WebAPI] Empty or invalid request _id required")
     return {"error" : "Empty or invalid request {'_id' : 'jobID'} required"}
   else:
     try:
@@ -190,19 +194,19 @@ def deleteEntry(passIn="none"):
       return {"error" : str(e)}
   
   if not _id:
-    log.warning("Invalid request {'_id' : 'jobID'} expected")
+    log.warning("[WebAPI] Invalid request {'_id' : 'jobID'} expected")
     return {"error" : "Invalid request {'_id' : 'jobID'} expected"}
 
   # mongo connection
   try:
-    log.warning("Connecting to DB....")
+    log.warning("[WebAPI] Connecting to DB....")
     # setting up the mongo client
     mongoClient = pymongo.MongoClient()
     # specifying the mongo database = 'boruDB'
     mongodb = mongoClient.boruDB
   except Exception as e:
     # log
-    log.error("Failed to establish connection with mongo: {}".format(str(e)))
+    log.error("[WebAPI] Failed to establish connection with mongo: {}".format(str(e)))
     return {"error" : "Failed to establish connection with mongo: {}".format(str(e))}
 
   # Take the _id received from the sender as a string (embedded in json) and convert to a Mongo Cursor object. 
@@ -211,7 +215,7 @@ def deleteEntry(passIn="none"):
     myquery = { "_id": ObjectId(_id) }
   except Exception as e:
     # log
-    log.error(str(e))
+    log.error("[WebAPI] " + str(e))
     return {"error" : (str(e))}
   
   # Find the job using the supplied _id to make sure that it exists and then to delete it
@@ -230,7 +234,7 @@ def deleteEntry(passIn="none"):
           if (jobStatus != "pending") and (jobStatus != "failed") and (jobStatus != "finished"):
             log.warning("Cannot delete a running job")
             return {"error" : "Cannot delete a running job"}
-        log.warning("Deleting " + _id + " job from scheduledJobs")
+        log.warning("[WebAPI] Deleting " + _id + " job from scheduledJobs")
         mongodb.scheduledJobs.delete_one(myquery)
         break
 
@@ -239,7 +243,7 @@ def deleteEntry(passIn="none"):
         loopBreak = True
         for x in dbOutput:
           tagName = x['tag']
-        log.warning("Deleting " + _id + " job from archivedJobs")
+        log.warning("[WebAPI] Deleting " + _id + " job from archivedJobs")
         mongodb.archivedJobs.delete_one(myquery)
         #print ("Job deleted from archivedJobs")
         break
@@ -249,7 +253,7 @@ def deleteEntry(passIn="none"):
         loopBreak = True
         for x in dbOutput:
           tagName = x['tag']
-        log.warning("Deleting " + _id + " job from failedJobs")
+        log.warning("[WebAPI] Deleting " + _id + " job from failedJobs")
         mongodb.failedJobs.delete_one(myquery)
         break
 
@@ -258,11 +262,11 @@ def deleteEntry(passIn="none"):
     else:
       # Close the database 
       mongoClient.close()
-      log.warning("Trying to delete the job " + _id + " but could not find it")
+      log.warning("[WebAPI] Trying to delete the job " + _id + " but could not find it")
       return {"error" : "Job not found"}
 
   except Exception as e:
-    log.error("Error: {}".format(str(e)))
+    log.error("[WebAPI] Error: {}".format(str(e)))
     return {"error" : "{}".format(str(e))}
   
   # Close the database 
@@ -298,14 +302,14 @@ def viewEntry(passIn="none"):
 
   # Verifies that JSON is present and contains an _id option
   if not jsonIn:
-    log.warning("Empty or invalid request _id required")
+    log.warning("[WebAPI] Empty or invalid request _id required")
     return {"error" : "Empty or invalid request {'_id' : 'jobID'} required"}
   else:
     try:
       _id = jsonIn.get("_id")
     except Exception as e:
       #print(str(e))
-      log.error(str(e))
+      log.error("[WebAPI] " + str(e))
       return {"error" : str(e)}
   
   if not _id:
@@ -321,7 +325,7 @@ def viewEntry(passIn="none"):
     mongodb = mongoClient.boruDB
   except Exception as e:
     # log
-    log.error("Failed to establish connection with mongo: {}".format(str(e)))
+    log.error("[WebAPI] Failed to establish connection with mongo: {}".format(str(e)))
     return {"error" : "Failed to establish connection with mongo: {}".format(str(e))}
 
   # Take the _id received from the sender as a string (embedded in json) and convert to a Mongo Cursor object. 
@@ -330,7 +334,7 @@ def viewEntry(passIn="none"):
     myquery = { "_id": ObjectId(_id) }
   except Exception as e:
     # log
-    log.error(str(e))
+    log.error("[WebAPI]", str(e))
     return {"error" : (str(e))}
   
   # Find the job using the supplied _id to make sure that it exists and then to return it
@@ -360,11 +364,11 @@ def viewEntry(passIn="none"):
     else:
       # Close the database 
       mongoClient.close()
-      log.warning("Job " + _id + " not found")
+      log.warning("[WebAPI] Job " + _id + " not found")
       return {"error" : "Job not found"}
 
   except Exception as e:
-    log.error("Error: {}".format(str(e)))
+    log.error("[WebAPI] Error: {}".format(str(e)))
     return {"error" : "{}".format(str(e))}
   
   # Close the database 
@@ -390,14 +394,14 @@ def viewSubOrg(passIn="none"):
     try:
       jsonIn = request.json
     except Exception as e:
-      log.error("Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required")
+      log.error("[WebAPI] Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required")
       return {"error" : "Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required"}
   else:
     jsonIn = passIn
 
   # Verifies that JSON is present and contains an _id or a subOrgName option
   if not jsonIn:
-    log.warning("Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required")
+    log.warning("[WebAPI] Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required")
     return {"error" : "Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required"}
   else:
     try:
@@ -418,7 +422,7 @@ def viewSubOrg(passIn="none"):
         return {"error" : "Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required"}
 
     except Exception as e:
-      log.error(str(e))
+      log.error("[WebAPI] " + str(e))
       return {"error" : "Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required"}
   
   # mongo connection
@@ -430,7 +434,7 @@ def viewSubOrg(passIn="none"):
     mongodb = mongoClient.boruDB
   except Exception as e:
     # log
-    log.error("Failed to establish connection with mongo: {}".format(str(e)))
+    log.error("[WebAPI] Failed to establish connection with mongo: {}".format(str(e)))
     return {"error" : "Failed to establish connection with mongo: {}".format(str(e))}
 
   
@@ -443,7 +447,7 @@ def viewSubOrg(passIn="none"):
       return {"error" : "subOrg not found"}
 
   except Exception as e:
-    log.error("Error: {}".format(str(e)))
+    log.error("[WebAPI] Error: {}".format(str(e)))
     return {"error" : "{}".format(str(e))}
   
   # Close the database 
@@ -468,14 +472,14 @@ def freeSubOrg(passIn="none"):
     try:
       jsonIn = request.json
     except Exception as e:
-      log.warning("Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required")
+      log.warning("[WebAPI] Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required")
       return {"error" : "Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required"}
   else:
     jsonIn = passIn
 
   # Verifies that JSON is present and contains an _id or a subOrgName option
   if not jsonIn:
-    log.warning("Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required")
+    log.warning("[WebAPI] Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required")
     return {"error" : "Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required"}
   else:
     try:
@@ -496,7 +500,7 @@ def freeSubOrg(passIn="none"):
         return {"error" : "Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required"}
 
     except Exception as e:
-      log.error(str(e))
+      log.error("[WebAPI] " + str(e))
       return {"error" : "Empty or invalid request {'_id' : 'subOrgID'} or {'subOrgName' : 'name'} required"}
   
   # mongo connection
@@ -508,7 +512,7 @@ def freeSubOrg(passIn="none"):
     mongodb = mongoClient.boruDB
   except Exception as e:
     # log
-    log.error("Failed to establish connection with mongo: {}".format(str(e)))
+    log.error("[WebAPI] Failed to establish connection with mongo: {}".format(str(e)))
     return {"error" : "Failed to establish connection with mongo: {}".format(str(e))}
 
   
@@ -528,7 +532,7 @@ def freeSubOrg(passIn="none"):
 
   except Exception as e:
     mongoClient.close()
-    log.warning("Error: {}".format(str(e)))
+    log.warning("[WebAPI] Error: {}".format(str(e)))
     return {"error" : "{}".format(str(e))}
   
   # Close the database 
@@ -556,7 +560,7 @@ def extendEntry(passIn="none"):
       jsonIn = passIn
   except Exception :
     # log
-    log.error("Empty or invalid request {'_id' : 'jobID'} required")
+    log.error("[WebAPI] Empty or invalid request {'_id' : 'jobID'} required")
     return {"error" : "Empty or invalid request {'_id' : 'jobID'} required"}
 
 
@@ -608,10 +612,10 @@ def extendEntry(passIn="none"):
         # Remove all suspended and unsuspend dates
         # Replace unsuspend with saved date from before. 
         if (jobStatus == "suspended"):
-          log.warning("Extending finish date of suspended job " + _id + ". Job will be resumed at " + str((x['listOfResumeTimes'])[0]))
+          log.warning("[WebAPI] Extending finish date of suspended job " + _id + ". Job will be resumed at " + str((x['listOfResumeTimes'])[0]))
           newResumeList = [(x['listOfResumeTimes'])[0]]
         else:
-          log.warning("Extending finish date of " + jobStatus + " job with the ID " + _id)
+          log.warning("[WebAPI] Extending finish date of " + jobStatus + " job with the ID " + _id)
           newResumeList = []
 
         mongodb.scheduledJobs.find_and_modify(myquery,{"$set": {"listOfResumeTimes": newResumeList}}, upsert=False )
@@ -626,11 +630,11 @@ def extendEntry(passIn="none"):
     else:
       # Close the database 
       mongoClient.close()
-      log.warning("Job " + _id + "not found")
+      log.warning("[WebAPI] Job " + _id + "not found")
       return {"error" : "Job " + _id + " not found"}
 
   except Exception as e:
-    log.error("Error: {}".format(str(e)))
+    log.error("[WebAPI] Error: {}".format(str(e)))
     return {"error" : "{}".format(str(e))}
   
   # Close the database 
@@ -671,7 +675,7 @@ def postScheduleClass(passIn="none"):
         print ("Did not get JSON")
     except Exception :
       # log
-      log.error("Empty or invalid request")
+      log.error("[WebAPI] Empty or invalid request")
       return {"error" : "Empty or invalid request. List of Required Parameters: {}".format(listOfRequiredParameters)}
 
 
@@ -707,7 +711,7 @@ def postScheduleClass(passIn="none"):
 
       # validate that the additionalParameter required by the course has been passed in by user in request
       if((requestParameter.get(additionalParameter) is None) or (requestParameter.get(additionalParameter) is "")):
-        log.warning("User input '{}' missing from request.".format(additionalParameter))
+        log.warning("[WebAPI] User input '{}' missing from request.".format(additionalParameter))
         error = "Failed to schedule class: '{}' is missing from your request. Required additional parameters for course: {} are: {} and {}".format(additionalParameter, str(requestCourseName), listOfRequiredParameters, listOfAdditionalCloudFormationParameters)
         return {"error" : error}
       else:
@@ -730,7 +734,7 @@ def postScheduleClass(passIn="none"):
 
       # validate that the additionalParameter required by the course has been passed in by user in request
       if((requestParameter.get(additionalParameter) is None) or (requestParameter.get(additionalParameter) is "")):
-        log.warning("User input '{}' missing from request.".format(additionalParameter))
+        log.warning("[WebAPI] User input '{}' missing from request.".format(additionalParameter))
         error = "Failed to schedule class: '{}' is missing from your request. Required additional parameters for course: {} are: Required Parameters: {} and, Additional Parameters For Course: {} and, Notification Parameters: {}".format(additionalParameter, str(requestCourseName), listOfRequiredParameters, listOfAdditionalCloudFormationParameters, listOfAdditionalNotificationParameters)
         return {"error" : error}
       else:
@@ -750,14 +754,14 @@ def postScheduleClass(passIn="none"):
       
       #1 - validate the parameter passed in by user is in present
       if((requestParameter.get(parameter) is None)  or (requestParameter.get(parameter) is "")):
-        log.warning("User input '{}' missing from request.".format(parameter))
+        log.warning("[WebAPI] User input '{}' missing from request.".format(parameter))
         error = "Failed to schedule class: '{}' is missing from your request. List of Required Parameters: {}".format(parameter, str(listOfRequiredParameters))
         return {"error" : error}
       #2 - add the 'requestParameter' buffer parameter to 'requestInformation' json object
       else:
         requestInformation.update(requestParameter)
     # after all parameters, log gathered info
-    log.info("User request information: {}".format(requestInformation))
+    log.info("[WebAPI] User request information: {}".format(requestInformation))
 
     # -------------------------------------------------------------------
     # last step, check for any extra inputs from the user and reject them
@@ -776,7 +780,7 @@ def postScheduleClass(passIn="none"):
         requestListOfKeys.remove(item)
     # check for leftovers
     if(requestListOfKeys):
-      log.info("Failed to schedule class: Parameters: '{}' provided by user should not be in the request.".format(requestListOfKeys))
+      log.info("[WebAPI] Failed to schedule class: Parameters: '{}' provided by user should not be in the request.".format(requestListOfKeys))
       error = "Failed to schedule class: Parameters: '{}' should not be in the request.".format(str(requestListOfKeys))
       return {"error" : error}
 
@@ -794,7 +798,7 @@ def postScheduleClass(passIn="none"):
   # try/except for debuging and catching errors
   except Exception as e:
     # logging
-    log.error("Failed to schedule class. Error: {}".format(str(e)))
+    log.error("[WebAPI] Failed to schedule class. Error: {}".format(str(e)))
 # --------------------
 # --------------------
 def getCourseAdditionalCloudFormationParameters(requestCourseName, listOfAdditionalCloudFormationParameters):
@@ -875,7 +879,7 @@ def viewJobs(pageName):
     # Set content type to HTML before returning it
     # This has to be set before the return as calling the REST API sets content_type to json
     setContentType("html")
-    log.warning(databaseOutput['error'])
+    log.warning("[WebAPI] " + str(databaseOutput['error']))
     return template('error', error=databaseOutput['error'])
   else:
     Output = json.loads(databaseOutput)
@@ -903,7 +907,7 @@ def deleteJob(jobId):
       # Set content type to HTML before returning it
       # This has to be set before the return as calling the REST API sets content_type to json
       setContentType("html")
-      log.warning(output['error'])
+      log.warning("[WebAPI] " + str(output['error']))
       return template('error', error=output['error'])
     #else:
     #  Output = json.loads(output)
@@ -931,7 +935,7 @@ def viewJob(jobId):
       # Set content type to HTML before returning it
       # This has to be set before the return as calling the REST API sets content_type to json
       setContentType("html")
-      log.warning(output['error'])
+      log.warning("[WebAPI] " + str(output['error']))
       return template('error', error=output['error'])
     #else:
     #  Output = json.loads(output)
@@ -958,7 +962,7 @@ def viewSubOrgs():
     # Set content type to HTML before returning it
     # This has to be set before the return as calling the REST API sets content_type to json
     setContentType("html")
-    log.warning(output['error'])
+    log.warning("[WebAPI] " + str(output['error']))
     return template('error', error=output['error'])
   else:
     Output = json.loads(output)
@@ -989,7 +993,7 @@ def displaySubOrg(key, value):
     # Set content type to HTML before returning it
     # This has to be set before the return as calling the REST API sets content_type to json
     setContentType("html")
-    log.warning(output['error'])
+    log.warning("[WebAPI] " + str(output['error']))
     return template('error', error=output['error'])
   else:
     Output = json.loads(output)
@@ -1019,7 +1023,7 @@ def readySubOrg(key, value):
     # Set content type to HTML before returning it
     # This has to be set before the return as calling the REST API sets content_type to json
     setContentType("html")
-    log.warning(output['error'])
+    log.warning("[WebAPI] " + str(output['error']))
     return template('error', error=output['error'])
   else:
     Output = json.loads(output)
@@ -1048,7 +1052,7 @@ def extendJob(jobId):
       # Set content type to HTML before returning it
       # This has to be set before the return as calling the REST API sets content_type to json
       setContentType("html")
-      log.warning(output['error'])
+      log.warning("[WebAPI] " + str(output['error']))
       return template('error', error=output['error'])
     #else:
     #  Output = json.loads(output)
@@ -1075,7 +1079,7 @@ def getWebScheduleClass():
       # Set content type to HTML before returning it
       # This has to be set before the return as calling the REST API sets content_type to json
       setContentType("html")
-      log.warning(output['error'])
+      log.warning("[WebAPI] " + str(output['error']))
       return template('error', error=output['error'])
     #else:
     #  Output = json.loads(output)
@@ -1102,7 +1106,7 @@ def postWebScheduleClass():
       # Set content type to HTML before returning it
       # This has to be set before the return as calling the REST API sets content_type to json
       setContentType("html")
-      log.warning(output['error'])
+      log.warning("[WebAPI] " + str(output['error']))
       return template('error', error=output['error'])
     
   courses = json.loads(output)
@@ -1120,7 +1124,7 @@ def postWebScheduleClass():
       # Set content type to HTML before returning it
       # This has to be set before the return as calling the REST API sets content_type to json
       setContentType("html")
-      log.warning(outputConfig['error'])
+      log.warning("[WebAPI] " + str(outputConfig['error']))
       return template('error', error=outputConfig['error'])
 
   configJSON = json.loads(outputConfig)
@@ -1154,7 +1158,7 @@ def postSubmitClass():
 
   if job is None:
     job = {"error" : "Empty response received from REST API postScheduleClass function"}
-    log.error("Empty response received from REST API postScheduleClass function")
+    log.error("[WebAPI] Empty response received from REST API postScheduleClass function")
   
   return template('output', output=job)
 

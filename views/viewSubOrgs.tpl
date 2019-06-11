@@ -145,6 +145,7 @@
        {{k}} : {{v}}<br/>
 %    end                                     #if k end 3
 %  end                                   # end for doc 2
+<a href = "/readySubOrg/subOrgName/{{heading}}">Mark as Ready</a><br/>
 </div>
 <p>&nbsp;</p>
 % end                                   # end for dbOutput 1

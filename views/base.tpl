@@ -3192,6 +3192,7 @@
 				}
 
 		}
+
 	</style>
 		<title>Boru</title>
 		<meta charset="utf-8" />
@@ -3201,15 +3202,15 @@
 
 		<!-- Header -->
 			<header id="header">
-				<h1><strong><a href="index.html">Boru</a></strong> AT&T Cybersecurity</h1>
+				<h1><strong><a href="/">Boru</a></strong> AT&T Cybersecurity</h1>
 				<nav id="nav">
 					<ul>
-						<li><a href="/">Home</a></li>
-						<li><a href="/viewJobs/failedJobs">Failed Jobs</a></li>
-						<li><a href="/viewJobs/scheduledJobs">Scheduled Jobs</a></li>
-						<li><a href="/viewJobs/archivedJobs">Archived Jobs</a></li>
-						<li><a href="/viewSubOrgs">SubOrgs</a></li>
-						<li><a href="/scheduleClass">Schedule Class</a></li>
+						<li><a title = "View classes that are active now" href="/viewJobs/currentJobs">Current</a></li>
+						<li><a title = "View classes with outstanding actions" href="/viewJobs/scheduledJobs">Scheduled</a></li>
+						<li><a title = "View all historic failed classes" href="/viewJobs/failedJobs">Failed</a></li>
+						<li><a title = "View all historic successful classes" href="/viewJobs/archivedJobs">Past</a></li>
+						<li><a title = "View the current status of student labs" href="/viewSubOrgs">Labs</a></li>
+						<li><a title = "Schedule a class" href="/scheduleClass">Schedule</a></li>
 					</ul>
 				</nav>
 			</header>

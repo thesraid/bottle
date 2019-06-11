@@ -33,9 +33,6 @@
 % summary = True
 %end
 
-%if summary:
-.
-%end
 
 %import json
 % # Cycle through the json file as in comes in as a list
@@ -43,9 +40,12 @@
 % heading = ((doc['startDate'])[:-9] + " | " + doc['course'] + " | " + doc['tag'] + " | " + doc['jobStatus'])
 % jobId = doc['_id']
 
-
+%if summary:
 <button class="collapsible">{{heading}}</button>
 <div class="content">
+%else:
+<h2>{{heading}}</h2>
+%end
 
 <table>
 %  for k, v in sorted(doc.items()):              # for doc 2

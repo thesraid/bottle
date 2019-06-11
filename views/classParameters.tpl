@@ -1,4 +1,4 @@
-<h2>Output</h2>
+<h2>Schedule</h2>
 % import json
 
 <div align="left">
