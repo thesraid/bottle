@@ -3209,7 +3209,7 @@
 						<li><a title = "View classes with outstanding actions" href="/viewJobs/scheduledJobs">Scheduled</a></li>
 						<li><a title = "View all historic failed classes" href="/viewJobs/failedJobs">Failed</a></li>
 						<li><a title = "View all historic successful classes" href="/viewJobs/archivedJobs">Past</a></li>
-						<li><a title = "View the current status of student labs" href="/viewSubOrgs">Labs</a></li>
+						<li><a title = "View the current status of student subOrgs" href="/viewSubOrgs">SubOrgs</a></li>
 						<li><a title = "Schedule a class" href="/scheduleClass">Schedule</a></li>
 					</ul>
 				</nav>

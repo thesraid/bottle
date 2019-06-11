@@ -76,17 +76,26 @@
 % end
 </td>
 </tr>
-% # If the key is finsihed Date and it's in the scheduled Jobs page then add an option to extend the labs
-%   elif (k == "finishDate") and (pageName == "scheduledJobs"):
-       <tr><td>{{k}}</td><td>{{v}} <a href="/extendJob/{{jobId}}" title="This will disable the suspending of labs">Extend by 3 hours</a></td></tr>
+
+
+
+% # If the key is finished Date then add an option to extend the labs
+%   elif (k == "finishDate") and not summary:
+       <tr><td>{{k}}</td><td>{{v}} <a href="/extendJob/{{jobId}}" title="Time in UTC | This will disable the suspending of labs">Extend by 3 hours</a></td></tr>
+%    elif summary and (k not in ['sender', 'instructor', 'region', 'startDate', 'finishDate', 'timezone']):
+%      pass
 %    else:
+%      if (k in ['startDate', 'finishDate']):
+%        v = v[:-9]
+%      end
        <tr><td>{{k}}</td><td>{{v}}</td></tr>
+
 %    end                                     #if k end 3
 
 %  end                                   # end for doc 2
 </table>
 % # If the variable delete is true this indicates that this job can be deleted. 
-% if delete:
+% if delete and not summary:
    <a href="../deleteJob/{{jobId}}" style="color: rgb(255,0,0)">Delete</a>
 % end
 

@@ -325,8 +325,8 @@ def viewEntry(passIn="none"):
     mongodb = mongoClient.boruDB
   except Exception as e:
     # log
-    log.error("[WebAPI] Failed to establish connection with mongo: {}".format(str(e)))
-    return {"error" : "Failed to establish connection with mongo: {}".format(str(e))}
+    log.error("[WebAPI] Failed to establish connection with mongo: " + str(e))
+    return {"error" : "Failed to establish connection with mongo. Check the logs for more details" }
 
   # Take the _id received from the sender as a string (embedded in json) and convert to a Mongo Cursor object. 
   # Create a query to find the _id in the database with the string provided by the sender.
@@ -334,7 +334,7 @@ def viewEntry(passIn="none"):
     myquery = { "_id": ObjectId(_id) }
   except Exception as e:
     # log
-    log.error("[WebAPI]", str(e))
+    log.error("[WebAPI] " + str(e))
     return {"error" : (str(e))}
   
   # Find the job using the supplied _id to make sure that it exists and then to return it
@@ -1147,7 +1147,7 @@ def postSubmitClass():
 
   
   for x in output:
-    print (x, output[x])
+    #print (x, output[x])
     pythonDict[x]=output[x]
     
   job = postScheduleClass(pythonDict)
