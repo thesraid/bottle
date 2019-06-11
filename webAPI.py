@@ -154,8 +154,8 @@ def collections(pageName="none"):
   #print(dbOutput)
   # Close the Database connection
   mongoClient.close()
-  # Return the list as a well formatted json string
-  return json.dumps(dbOutput, indent=4, sort_keys=True, default=str)
+  # Return the list as a well formatted json string in reverse order [::-1] to show the newest at the top
+  return json.dumps(dbOutput[::-1], indent=4, sort_keys=True, default=str)
 
 
 # ----------------
@@ -649,7 +649,7 @@ def extendEntry(passIn="none"):
 # -----------------
 # performs a post, validating and scheduling a class
 @app.post('/api/addSubOrgs')
-def postScheduleClass(passIn="none"):
+def postAddSubOrgs(passIn="none"):
   # Required parameters
   listOfRequiredParameters = ['subOrgName', 'rangeFrom', 'rangeTo', 'environment']
   # try/except for debuging and catching errors
@@ -1133,6 +1133,37 @@ def extendJob(jobId):
   # Send output to extendJob.tpl
   return template('extendJob', jobId=output)
 
+# ----------------
+# Add SubOrg Get
+# ----------------
+@app.route('/addSubOrgs', method='GET')
+def getWebAddSubOrgs():
+  # Send to addSubOrgs.tpl
+  return template('addSubOrgs')
+
+# ----------------
+# Add SubOrg Post
+# ----------------
+@app.route('/addSubOrgs', method='POST')
+def getWebAddSubOrgs():
+  output = request.forms
+  pythonDict = {}
+
+  for x in output:
+    print (x, output[x])
+    pythonDict[x]=output[x]
+
+  response = postAddSubOrgs(pythonDict)
+
+  print (pythonDict)
+  print (response)
+  setContentType("html")
+
+  if response is None:
+    response = {"error" : "Empty response received from REST API addSubOrgs function"}
+    log.error("[WebAPI] Empty response received from REST API addSubOrgs function")
+  
+  return template('output', output=response)
 
 # ----------------
 # Extend Job in the Database
