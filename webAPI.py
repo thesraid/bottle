@@ -29,6 +29,14 @@ from datetime import datetime, timedelta
 import RequestHandler, addSubOrgs
 
 # ------------
+# config file setup
+# ------------
+# This is needed to import the boru python config file
+import sys
+sys.path.insert(0, '/etc/boru/')
+import config
+
+# ------------
 # logger setup
 # ------------
 logging.basicConfig(filename='/var/log/boru.log',level=logging.INFO, format="%(asctime)s: %(levelname)s: %(message)s")
@@ -148,8 +156,8 @@ def collections(pageName="none"):
     dbOutput=list(mongodb.tasks.find())
   elif collection == "courses":
     dbOutput=list(mongodb.courses.find())
-  elif collection == "config":
-    dbOutput=list(mongodb.config.find())
+  #elif collection == "config":
+  #  dbOutput=list(mongodb.config.find())
   elif collection == "currentJobs":
     scheduledOutput=list(mongodb.scheduledJobs.find({ "startDate" : {"$lte" : datetime.now()},"finishDate" : {"$gte" : datetime.now()} }))
     failedOutput=list(mongodb.failedJobs.find({ "startDate" : {"$lte" : datetime.now()},"finishDate" : {"$gte" : datetime.now()} }))
@@ -1230,19 +1238,10 @@ def postWebScheduleClass():
     if doc['courseName'] == courseName:
       courseJSON = doc
   
-  outputConfig = collections("config")
-  #print ("Output: ", output)
-
-  if ((type(outputConfig) is dict)):
-    if (outputConfig['error']):
-      #print ("ERROR - EXIT", output['error'])
-      # Set content type to HTML before returning it
-      # This has to be set before the return as calling the REST API sets content_type to json
-      setContentType("html")
-      log.warning("[webApi] " + str(outputConfig['error']))
-      return template('error', error=outputConfig['error'])
-
-  configJSON = json.loads(outputConfig)
+  #outputConfig = collections("config")
+  region = config.getConfig("region")
+  timezone = config.getConfig("timezone")
+  #configJSON = json.loads(outputConfig)
 
   #print ("Single Course: ", courseJSON)
 
@@ -1254,7 +1253,7 @@ def postWebScheduleClass():
   setContentType("html")
 
   # Send output to extendJob.tpl
-  return template('classParameters', output=courseJSON, config=configJSON, user=user)
+  return template('classParameters', output=courseJSON, region=region, timezone=timezone, user=user)
 
   
 @app.route('/submitClass', method='POST')

@@ -29,45 +29,25 @@ function goBack() {
 
 <tr><td>sensor</td><td><select name="sensor"><option value="yes">yes</option><option value="no">no</option></select></td></tr>
 
-% for doc in config:
-%   for title in doc:
-%     if title not in ["_id", "key"]:
+<tr><td>region</td><td><select name="region">
+  %for item in region:
+  % for x in item:
+  %  if x == cloud:
+  %   for loc in item[cloud]:
+        <option value="{{loc}}">{{loc}}</option>
+  %   end
+  %  end
+  % end  
+  %end
+</select></td></tr>
 
-%        if title == "region":
-          <tr><td>{{title}}</td><td><select name="region">
-%          for cloudList in (doc[title]):
-
-%             for k, v in cloudList.items():
-%              if k == cloud:
-%                for l in v:
-
-                  
-
-                    <option value="{{l}}">{{l}}</option>
-
-
-%               end
-%              end
-%             end
+<tr><td>timeszone</td><td><select name="timezone">
+  %for zone in timezone:
+      <option value="{{zone}}">{{zone}}</option>
+  %end
+</select></td></tr>
 
 
-%          end
-
-          </select></td></tr>
-
-%       else:
-        <tr><td>{{title}}</td><td>
-        % listOfItems = doc[title]
-        <select name="{{title}}">
-        %for item in listOfItems:
-          <option value="{{item}}">{{item}}</option>
-        %end
-        </select></td></tr>
-
-%       end
-%     end
-%   end
-% end
 
 <tr><td>tag</td><td><input type="text" name="tag"></td></tr>
 
@@ -151,6 +131,7 @@ function goBack() {
 {{k}}</td><td>{{v}}</td></tr>
 % end
 % end
+
 </table>
 <input type="submit" value="Submit">
 </form>
