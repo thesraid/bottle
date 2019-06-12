@@ -12,12 +12,12 @@ function goBack() {
 
 % cloud = (output['environment'])
 <br>
-<form action="/submitClass" method="post">
+<form action="/submitClass" method="post" accept-charset="utf-8">
 <table>
 
 %# The following are required for every request and are not stored in the course document in the database
 
-<tr><td>sender:</td><td><input type="text" name="sender"></td></tr>
+<tr><td>sender:</td><td><input type="text" name="sender" value="{{user['user']}}" readonly></td></tr>
 <tr><td>instructor:</td><td><input type="text" name="instructor"></td></tr>
 
 

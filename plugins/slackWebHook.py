@@ -16,7 +16,7 @@ import sys
 sys.path.insert(0, '/etc/boru/')
 import config
 
-logging.basicConfig(filename='/var/log/boru.log',level=logging.INFO, format="%(asctime)s: [WebAPI] %(levelname)s: %(message)s")
+logging.basicConfig(filename='/var/log/boru.log',level=logging.INFO, format="%(asctime)s: %(levelname)s: %(message)s")
 log = logging.getLogger('boru')
 
 def notify(recipient, job, message="Notification from Boru"):

@@ -1,15 +1,21 @@
+# -*- coding: utf-8 -*-
 # Jaroslaw Glodowski
 # script: addSubOrgs.py
-# version: 1.0.0
+# version: 1.0.1
 
 import pymongo, json
+# This is needed to import the boru python config file
+import sys
+sys.path.insert(0, '/etc/boru/')
+import config
+
 def addSubOrgs(subOrgName, rangeFrom, rangeTo, environment):
   # Setting up mongoDB client
   mongoClient = pymongo.MongoClient()
   mongodb = mongoClient.boruDB
 
   # Very first thing, validate all the parameters to prevent crashes
-  response = validateParameters(subOrgName, rangeFrom, rangeTo, environment, mongodb)
+  response = validateParameters(subOrgName, rangeFrom, rangeTo, environment)
   if(response[0]):
     return {"error": response[1]}
 
@@ -47,7 +53,7 @@ def addSubOrgs(subOrgName, rangeFrom, rangeTo, environment):
   return {"success": success}
 
 # Validates the user input and returns True if fails
-def validateParameters(subOrgName, rangeFrom, rangeTo, environment, mongodb):
+def validateParameters(subOrgName, rangeFrom, rangeTo, environment):
   # 1: subOrgName - Requirements: type: str
   if(isinstance(subOrgName, str) == False):
     return [True, "'subOrgName' must be of type 'str'"]
@@ -72,10 +78,9 @@ def validateParameters(subOrgName, rangeFrom, rangeTo, environment, mongodb):
   # Check against db.config['region']
   listOfEnvrionments = []
   errorStr = ""
-  configRegion = mongodb.config.find({"key":"region"})
+  configRegion = config.getConfig("region")
   for i in configRegion:
-    for j in i['region']:
-      listOfEnvrionments.append(list(j.keys()))
+      listOfEnvrionments.append(list(i.keys()))
   # check against the 'listOfEnvrionments'
   for i in listOfEnvrionments:
     errorStr = errorStr + i[0] + ", "

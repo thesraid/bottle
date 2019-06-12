@@ -3195,7 +3195,7 @@
 
 	</style>
 		<title>Boru</title>
-		<meta charset="utf-8" />
+		<meta charset="UTF-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<link rel="icon" href="/static/smallLogo.png">
 	</head>

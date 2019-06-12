@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # Jaroslaw Glodowski
-# version: 0.8.0
+# version: 0.8.1
 # RequestHandler.py - validates inputs, creates additional fields for request and inserts the request to mongo
 
 import pymongo, datetime, json, logging
@@ -28,13 +28,13 @@ log = logging.getLogger('boru')
 # amount of subOrgs limit per class 
 subOrgLimitPerClass = config.getConfig("subOrgLimitPerClass")
 # amount of all subOrgs to be kept 'free' when validating a request
-freeSubOrgsBuffer = config.getConfig("subOrgLimitPerClass")
+freeSubOrgsBuffer = config.getConfig("freeSubOrgsBuffer")
 # time a class starts
-startHour = config.getConfig("subOrgLimitPerClass")
-startMinute = config.getConfig("subOrgLimitPerClass")
+startHour = config.getConfig("startHour")
+startMinute = config.getConfig("startMinute")
 # time a class finished
-finishHour = config.getConfig("subOrgLimitPerClass")
-finishMinute = config.getConfig("subOrgLimitPerClass")
+finishHour = config.getConfig("finishHour")
+finishMinute = config.getConfig("finishMinute")
 # --------------------------------------------------------------------
 # the format datetime uses(don't change unless code below is modified)
 datetimeFormat = "%Y-%m-%d"
@@ -51,7 +51,7 @@ def insertAwsClass(request):
     mongodb = mongoClient.boruDB
   except Exception as e:
     # logging
-    log.error("[RequestHandler] Failed to establish connection with mongo: {}".format(str(e)))
+    log.exception("[RequestHandler] Failed to establish connection with mongo: {}".format(str(e)))
     return {"error" : "Failed to schedule class: Server Error: Unable to establish connection with database."}
   # ------
 
@@ -98,7 +98,7 @@ def insertAwsClass(request):
     return {"error": error}
 
   # validating timezone
-  response = validateTimezoneInDB(request, mongodb)
+  response = validateTimezone(request)
   if(not response[0]):
     # closing mongo connection
     mongoClient.close()
@@ -147,14 +147,8 @@ def insertAwsClass(request):
     error = "Failed to schedule class: 'finishDate' format is incorrect. Use: 'YYYY-MM-DD'"
     return {"error": error}
 
-
-
   # getting currentTimeInUTC (used with 'now')
   currentTimeInUTC = datetime.datetime.utcnow()
-
-  
-
-  print("\nHERE:0\n")
 
   # ====
 
@@ -200,18 +194,6 @@ def insertAwsClass(request):
     error = "Failed to schedule class: 'finishDate' provided by user is not in the future."
     return {"error": error}
 
-  # Next, Generate suspend and Resum e times in 'UTC'
-  listOfSuspendTimes = []
-  listOfResumeTimes = []
-
-  # Generating suspend and resume times
-  generateSuspendAndResumeTimes(request, listOfSuspendTimes, listOfResumeTimes)
-  addSuspendAndResumeDates(request, listOfSuspendTimes, listOfResumeTimes)
-
-  
-
-  print("\nHERE:1\n")
-
   # validating startDate is in the future
   response = validateStartDateIsInFuture(request, currentTimeInUTC)
   if(not response):
@@ -222,8 +204,6 @@ def insertAwsClass(request):
     error = "Failed to schedule class: 'startDate' must be in the future."
     return {"error": error}
 
-  print("\nHERE:2\n")
-
   # validating finishDate is bigger than startDate
   response = validateFinishDateIsBiggerThanStartDate(request)
   if(not response):
@@ -233,7 +213,15 @@ def insertAwsClass(request):
     log.warning("[RequestHandler] Failed to schedule class: 'finishDate':'{}' provided by user is before 'startDate':'{}'.".format(request['startDate'], request['finishDate']))
     error = "Failed to schedule class: 'finishDate' must be after 'startDate'."
     return {"error": error}
-  
+
+  # Next, Generate suspend and Resum e times in 'UTC'
+  listOfSuspendTimes = []
+  listOfResumeTimes = []
+
+  # Generating suspend and resume times
+  generateSuspendAndResumeTimes(request, listOfSuspendTimes, listOfResumeTimes)
+  addSuspendAndResumeDates(request, listOfSuspendTimes, listOfResumeTimes)
+
   # validating sensor input is yes or no
   response = validateSensor(request)
   if(not response):
@@ -327,8 +315,6 @@ def validateAndConvertNumberOfSubOrgsToInt(request):
 
 def validateFinishDateIsInTheFuture(request, currentTimeInUTC):
   try:
-    print("request['finishDate'] :", request['finishDate'])
-    print("currentTimeInUTC :", currentTimeInUTC)
     if(request['finishDate'] > currentTimeInUTC):
       return [True, "N/A"]
     else:
@@ -404,8 +390,6 @@ def validateNotificationParameters(request, mongodb, log):
             if(str(notificationParam['notificationKey']) == str(requestParam)):
               # validate
               if(request[requestParam] not in notificationParam['validInput']):
-                print(request[requestParam])
-                print(notificationParam['validInput'])
                 return [False, str(requestParam), str(request[notificationParam['notificationKey']]), "Invalid input. Valid inputs: {}".format(str(notificationParam['validInput']))]
   # success, all validated
   return [True, "N/A", "N/A", "N/A"]
@@ -470,14 +454,10 @@ def validateAmountOfFreeSubOrgs(request, mongodb):
   else:
     return [True, amountOfFreeSubOrgsWithBuffer]
 
-# the format for timezones listed in the database must be compatable with the datetime methods used in convertTimezone(). eg.('Europe/Dublin', 'US/Pacific')
-def validateTimezoneInDB(request, mongodb):
-  # get all timezones from db
-  config = mongodb.config.find()
-  for item in config:
-    if(item['key'] == "timezone"):
-      listOfSupportedTimezones = item['timezone']
-      break
+# uses the config file to get a list of supported timezones
+def validateTimezone(request):
+  # get all timezones from config file
+  listOfSupportedTimezones = config.getConfig("timezone")
   # compare the user request timezone with all the ones in the database
   for validTimezone in listOfSupportedTimezones:
     if(validTimezone == request['timezone']):
@@ -617,21 +597,19 @@ def validateRegion(request, mongodb):
       if(str(course['courseName']) == str(courseName)):
         environment = course['environment']
         break
-  # extracting values from db.config
-    myList = []
-    configRegion = mongodb.config.find({"key":"region"})
-    for i in configRegion:
-      for j in i['region']:
-        for k in j.keys():
-          if(k == environment):
-            for l in j.values():
-              myList = l
-    print("\n\nLIST:", myList, "\n\n")
-    if(region in myList):
-        return[True, myList]
-    else:
-      # notify the user their input is invalid
-      return[False, myList]
+
+    # get all timezones from config file
+    listOfRegions = config.getConfig("region")
+    
+    for i in listOfRegions:
+        for j in i.keys():
+          if(j == environment):
+            for k in i.values():
+              if(region in k):
+                return[True, k]
+              else:
+                # notify the user their input is invalid
+                return[False, k]
   # in case if the db.config breaks with bad admin input
   except Exception as e:
     return[False, str(e)]
