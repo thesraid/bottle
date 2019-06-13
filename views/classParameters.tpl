@@ -18,7 +18,7 @@ function goBack() {
 %# The following are required for every request and are not stored in the course document in the database
 
 <tr><td>sender:</td><td><input type="text" name="sender" value="{{user['user']}}" readonly></td></tr>
-<tr><td>instructor:</td><td><input type="text" name="instructor"></td></tr>
+<tr><td>instructor:</td><td><input type="text" name="instructor" pattern="[a-zA-Z][-a-zA-Z0-9]*" placeholder="Letters and numbers only. No spaces" required></td></tr>
 
 
 <tr><td>numberOfSubOrgs</td><td><select name="numberOfSubOrgs">
@@ -49,7 +49,7 @@ function goBack() {
 
 
 
-<tr><td>tag</td><td><input type="text" name="tag"></td></tr>
+<tr><td>tag</td><td><input type="text" name="tag" pattern="[a-zA-Z][-a-zA-Z0-9]*" placeholder="Letters and numbers only. No spaces" required></td></tr>
 
 
 <tr><td>startDate</td><td><input type="date" name="startDate"></td><td><input type="checkbox" name="startDate" value="now"> Now</td></tr>
@@ -76,6 +76,10 @@ function goBack() {
 % elif x['paramType'] == 'prompt':
 <tr><td>{{x['paramKey']}}</td><td><input type="text" name="{{x['paramKey']}}"></td></tr>
 
+% elif x['paramType'] == 'plugin-static':
+<tr><td>{{x['paramKey']}}</td><td>{{x['paramValue']}}</td></tr>
+% elif x['paramType'] == 'static':
+<tr><td>{{x['paramKey']}}</td><td>{{x['paramValue']}}</td></tr>
 
 % elif x['paramType'] == 'list':
 <tr><td>{{x['paramKey']}}</td><td> 

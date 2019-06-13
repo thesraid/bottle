@@ -68,6 +68,23 @@
 % end
 </td>
 </tr>
+
+%    elif (k == "errorInfo") and not summary:
+<tr><td>{{k}}</td><td>
+% for error in doc[k]:
+ {{error}}</br></br>
+% end
+</td>
+</tr>
+
+%    elif (k == "notifications") and not summary:
+<tr><td>{{k}}</td><td>
+% for error in doc[k]:
+ {{error}}</br></br>
+% end
+</td>
+</tr>
+
 % # If the key is FailedSubOrgs then add a link to the subOrg page
 %    elif (k == "failedSubOrgs"):
 <tr><td>{{k}}</td><td>
@@ -82,7 +99,7 @@
 % # If the key is finished Date then add an option to extend the labs
 %   elif (k == "finishDate") and not summary:
        <tr><td>{{k}}</td><td>{{v}} <a href="/extendJob/{{jobId}}" title="Time in UTC | This will disable the suspending of labs">Extend by 3 hours</a></td></tr>
-%    elif summary and (k not in ['sender', 'instructor', 'region', 'startDate', 'finishDate', 'timezone']):
+%    elif summary and (k not in ['sender', 'instructor', 'region', 'startDate', 'finishDate', 'timezone', 'numberOfSubOrgs']):
 %      pass
 %    else:
 %      if (k in ['startDate', 'finishDate']):

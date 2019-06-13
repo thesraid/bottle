@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Jaroslaw Glodowski
 # script: addSubOrgs.py
-# version: 1.0.1
+# version: 1.0.2
 
 import pymongo, json
 # This is needed to import the boru python config file
@@ -10,6 +10,8 @@ sys.path.insert(0, '/etc/boru/')
 import config
 
 def addSubOrgs(subOrgName, rangeFrom, rangeTo, environment):
+
+
   # Setting up mongoDB client
   mongoClient = pymongo.MongoClient()
   mongodb = mongoClient.boruDB
@@ -78,7 +80,13 @@ def validateParameters(subOrgName, rangeFrom, rangeTo, environment):
   # Check against db.config['region']
   listOfEnvrionments = []
   errorStr = ""
-  configRegion = config.getConfig("region")
+
+  try:
+    configRegion = config.getConfig("region")
+  except Exception as e:
+    errorMessage = "[addSubOrgs] Error: {} in config.py. Please update config.py and run 'restartBoru'".format(str(e))
+    return [True, errorMessage]
+
   for i in configRegion:
       listOfEnvrionments.append(list(i.keys()))
   # check against the 'listOfEnvrionments'

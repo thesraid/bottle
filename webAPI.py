@@ -232,6 +232,33 @@ def deleteEntry(passIn="none"):
     # log
     log.error("[webApi] " + str(e))
     return {"error" : (str(e))}
+
+  
+  # Check if the logged in user can delete the entry
+  loggedin = whoami(request)
+  user = loggedin['user']
+
+  # Get the name of the user who created the job
+
+  job = viewEntry(myquery)
+  try:
+    if job['error']:
+      setContentType("json")
+      return {"error":"Unable to find this job. Please check the _id"} 
+  except:
+    jsonList = json.loads(job)
+    jsonJob = jsonList[0]
+    sender = jsonJob['sender']
+
+  try:
+    admins = config.getConfig("admin")
+  except Exception as e:
+    setContentType("json")
+    return ({'error': "Unable to read admins list from config.py"})
+
+  # if the user is not the original sender of the job or an admin they can't delete it
+  if ((user != sender) and (user not in admins)):
+    return {"error" : "You are not allowed to delete this job as it is owned by " + sender}
   
   # Find the job using the supplied _id to make sure that it exists and then to delete it
   try:
@@ -557,7 +584,7 @@ def freeSubOrg(passIn="none"):
   return dumps(output, indent=4, sort_keys=True, default=str)
 
 # ----------------
-# Delete an entry from a jobs collection in the database
+# Extend an entry from a jobs collection in the database
 # ----------------
 @app.post('/api/extendJob')
 def extendEntry(passIn="none"):
@@ -614,6 +641,34 @@ def extendEntry(passIn="none"):
     # log
     #print(str(e))
     return {"error" : (str(e))}
+
+  
+  # Check if the logged in user can extend the job
+  loggedin = whoami(request)
+  user = loggedin['user']
+
+  # Get the name of the user who created the job
+
+  job = viewEntry(myquery)
+  print (job)
+  try:
+    if job['error']:
+      setContentType("json")
+      return {"error":"Unable to find this job. Please check the _id"}
+  except:
+    jsonList = json.loads(job)
+    jsonJob = jsonList[0]
+    sender = jsonJob['sender']
+
+  try:
+    admins = config.getConfig("admin")
+  except Exception as e:
+    setContentType("json")
+    return ({'error': "Unable to read admins list from config.py"})
+
+  # if the user is not the original sender of the job or an admin they can't delete it
+  if ((user != sender) and (user not in admins)):
+    return {"error" : "You are not allowed to extend this job as it is owned by " + sender}
   
   # Find the job using the supplied _id to make sure that it exists and then to delete it
   try:
@@ -688,6 +743,22 @@ def postAddSubOrgs(passIn="none"):
       # log
       log.error("[webApi] Empty or invalid request")
       return {"error" : "Empty or invalid request. List of Required Parameters: {}".format(listOfRequiredParameters)}
+
+    # -------------------
+    # Check Permissions
+
+    # Check if the logged in user can create subOrgs the job
+    loggedin = whoami(request)
+    user = loggedin['user']
+
+    try:
+      admins = config.getConfig("admin")
+    except Exception as e:
+      setContentType("json")
+      return ({'error': "Unable to read admins list from config.py"})
+
+    if (user not in admins):
+      return {"error" : "You are not allowed to create subOrgs"}
     # -------------------
     # Add SubOrgs
     for parameter in listOfRequiredParameters:
@@ -734,6 +805,21 @@ def postAddSubOrgs(passIn="none"):
 # performs a post, validating and scheduling a class
 @app.post('/api/scheduleClass')
 def postScheduleClass(passIn="none"):
+
+
+  # Check if the logged in user can create subOrgs the job
+  loggedin = whoami(request)
+  user = loggedin['user']
+
+  try:
+    schedulers = config.getConfig("scheduler")
+    admins = config.getConfig("admin")
+  except Exception as e:
+    setContentType("json")
+    return ({'error': "Unable to read admins or schedulers from config.py"})
+
+  if (user not in admins) and (user not in schedulers):
+    return {"error" : "You are not allowed to schedule labs"}
 
   # list of required parameters that are needed to schedule a class.
   # when expanding in future, add new required parameters to this list in order for the new parameters to be accounted for
@@ -875,14 +961,19 @@ def postScheduleClass(passIn="none"):
 
     # hand off the request to RequestHandler.py
     requestHandlerConfirmation = RequestHandler.insertAwsClass(requestInformation)
-
-    # return the response to the user (will need to be modified to make it look nice)
-    return requestHandlerConfirmation
+    print (requestHandlerConfirmation)
+    if (requestHandlerConfirmation == None) or (requestHandlerConfirmation == ""):
+      log.error("Unexpected or empty response received from the RequestHandler.")
+      return {"error" : "Unexpected response received from the RequestHandler. Please check the logs"}
+    else:
+      # return the response to the user (will need to be modified to make it look nice)
+      return requestHandlerConfirmation
 
   # try/except for debuging and catching errors
   except Exception as e:
     # logging
     log.error("[webApi] Failed to schedule class. Error: {}".format(str(e)))
+    return {"error" : "Failed to schedule class. Error: {}.".format(str(e))}
 # --------------------
 # --------------------
 def getCourseAdditionalCloudFormationParameters(requestCourseName, listOfAdditionalCloudFormationParameters):
@@ -1239,8 +1330,12 @@ def postWebScheduleClass():
       courseJSON = doc
   
   #outputConfig = collections("config")
-  region = config.getConfig("region")
-  timezone = config.getConfig("timezone")
+  try:
+    region = config.getConfig("region")
+    timezone = config.getConfig("timezone")
+  except Exception as e:
+    setContentType("html")
+    return template('error', error="Error: " + str(e) + " in config.py")
   #configJSON = json.loads(outputConfig)
 
   #print ("Single Course: ", courseJSON)

@@ -1,0 +1,1338 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+
+# ------------------
+# Jaroslaw Glodowski
+# ------------------
+
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# /root/.aws/config is being used for accounts fix it later on
+# https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html#configuration
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+# ----------------------------------------
+# version: 0.8.0
+# Boru.py - custom boru scheduler _/_\/_\_
+# ----------------------------------------
+
+import time, pymongo, datetime, logging, threading, json, ast
+from importlib import import_module
+from systemd.journal import JournalHandler
+from bson import ObjectId
+
+# import plugins located in /plugins
+from plugins import *
+# import scripts located in /scripts
+from scripts import *
+# import scripts located in /notificationPlugins
+from notificationPlugins import *
+
+# ------------
+# logger setup
+# ------------
+logging.basicConfig(filename='/var/log/boru.log',level=logging.INFO, format="%(asctime)s: %(levelname)s: %(message)s")
+log = logging.getLogger('boru')
+log.addHandler(JournalHandler())
+
+def main():
+  # logging
+  log.warning("[Scheduler] -----------------------------------------------------------------------------")
+  log.warning("[Scheduler] Starting...")
+  log.warning("[Scheduler] logging to /var/log/boru.log and journalctl")
+  log.warning("[Scheduler] if this service keeps failing to start, run /opt/boru/boru for extra logging.")
+  log.warning("[Scheduler] -----------------------------------------------------------------------------")
+
+  # ----------------
+  # mongo connection
+  # ----------------
+  try:
+    # 1. setting up the mongo client
+    # 2. specifying the mongo database = 'boruDB'
+    mongoClient = pymongo.MongoClient()
+    mongodb = mongoClient.boruDB
+  except Exception as e:
+    # logging
+    log.error("[Scheduler] Failed to establish connection with MongoDB: {}".format(str(e)))
+
+  # ------------
+  # cycleCounter
+  # ------------
+  # used to switch between two main parts of the scheduler, 1 tasks and 2 jobs inside the while loop below
+  cycleCounter = 2
+
+  # main loop of the scheduler
+  while(True):
+    # =====
+    # tasks
+    # =====
+    # tasks are used whenever a job is being run. each task corresponds to only one action such as start one subOrg.
+    # each job generates one or multiple tasks based on the action a job is performing such as start or finish subOrg.
+    if(cycleCounter < 2):
+      # getting all up to date tasks
+      allTasks = getTasks(mongodb, log)
+
+      # looping through every task, checking for different types and status combination.
+      # each combination determines what part of the elif statement is accessed for that task.
+      # note: task['taskStatus'] must be changed in the external scripts(like awsStart.py) to ready/error!
+      for task in allTasks:
+        # ==================================================================================
+        # combination 1: taskType == 'startSubOrg' && taskStatus == 'pending'
+        # this combination performs the following steps in order to start a subOrg for a job
+        # ==================================================================================
+        if((task['taskType'] == "startSubOrg") and (task['taskStatus'] == 'pending')):
+
+          # step 0: most important to prevent infitite crash loops!
+          # check if the current task is still valid and has a job associated with it.
+          # if this is not done, some information in the task will be 'None', crashing the loop.
+          response = checkJobStillInScheduledJobs(task['job_id'], mongodb, log)
+          # based on response, if there is no job associated with the task in scheduledJobs, delete it. else continue as normal
+          if(response is False):
+            # delete the task
+            mongodb.tasks.delete_one({ "_id": task['_id'] })
+            # exit
+            break
+
+          # step 1.1: find a free subOrg for valid task
+          mySubOrg = findFreeSubOrg(task, mongodb)
+
+          # step 1.2 if free subOrg is None, there are not enough subOrgs available to start a class
+          # Note: this can happen throughout the 5th subOrg starting, meaning the job will be marked as failed but some subOrgs will be up!
+          if(mySubOrg is None):
+            # add error to task
+            writeErrorInfoToTask(task['_id'], "No subOrg available", "There are not enough subOrgs of environment: '{}' in the database.".format(str(task['environment'])), mongodb)
+            # fail the job and delete the task
+            # this function is only called when there are no mere subOrgs of the environment required (here)
+            failJobAndDeleteTask(task, mongodb)
+            # log
+            log.warning("[Scheduler] There are not enough subOrgs of environment: '{}' in the database for job_id: {}".format(str(task['environment']), str(task['job_id'])))
+            # break is key in order to prevent crash!
+            break
+
+          # step 2: create a task buffer (information to pass into start script / not stored in database)
+          # note: there needs to be a second variable for mySubOrg because 'task' is in memory, outdated
+          # from 'findFreeSubOrg' method call and 'task' in memory does not contain the subOrg.
+          taskBuffer = generateStartSubOrgTaskBuffer(task, mySubOrg, mongodb)
+
+          # step 3: process the parameters based on their type: list, static, prompt, plugins...
+          taskBuffer = processParameters(task, taskBuffer, mySubOrg, mongodb, log)
+
+          # step 3-1: if the above failed (error returned), the taskStatus is now error, so exit out of this if. the task will be cleaned up next cycle.
+          if(taskBuffer == "error"):
+            break
+
+          # steps 4: extract startScriptName from job
+          startScriptName = extractStartScriptName(task, mongodb)
+
+          # steps 5: converting str of the startScriptName into a module
+          startScriptNameConverted = customImportModule(startScriptName, task, mongodb, log)
+
+          # step 5-1: if the above fails, mark the task as error
+          if(startScriptNameConverted == 'error'):
+            # logging
+            log.info("[Scheduler] customImportModule Failed: {}".format(str(startScriptName)))
+
+            # add error to task
+            writeErrorInfoToTask(task['_id'], mySubOrg, "Failed to convert Import Module", mongodb)
+
+            # step 5-2: update the taskStatus to error
+            mongodb.tasks.update_one({ "_id": task['_id'] }, { "$set": { "taskStatus": "error" } })
+
+            # logging
+            log.error("[Scheduler] Failed starting 'startSubOrg' task. task_id: {}".format(str(task['_id'])))
+            break
+          # if the 'customImportModule' method worked start a thread with the information generated in previous steps
+          else:
+            # steps 6: start a thread with the converted 'startScriptNameConverted' module and a main method
+            # note: all calls to any external scripts call a method named: main
+            threading.Thread(target = startScriptNameConverted.main, args = (taskBuffer,)).start()
+
+            # steps 7: update the taskStatus to running
+            mongodb.tasks.update_one({ "_id": task['_id'] }, { "$set": { "taskStatus": "running" } })
+
+            # logging
+            log.info("[Scheduler] Starting 'startSubOrg' task. task_id: {}".format(str(task['_id'])))
+
+        # ======================================================================================================
+        # combination 2: taskType == 'startSubOrg' && taskStatus == 'ready'
+        # this combination performs the following steps in order finish the task 'startSubOrg' task successfully
+        # ======================================================================================================
+        elif((task['taskType'] == "startSubOrg") and (task['taskStatus'] == 'ready')):
+          # step 1: add the subOrg to job['subOrgs'] list in scheduledJobs
+          addSubOrgToSubOrgsInJob(task, mongodb, log)
+
+          # step 2: add the successInfo to job from task
+          addSuccessInfoToJob(task, mongodb)
+
+          # step 3: change that subOrg status to 'running'
+          changeSubOrgStatus(task['subOrg'], mongodb, 'running', log)
+
+          # logging
+          log.info("[Scheduler] Success starting subOrg. Removing 'startSubOrg' task. task_id: {}".format(str(task['_id'])))
+
+          # step 3: delete the task as its lifecycle is finished
+          mongodb.tasks.delete_one({ "_id": task['_id'] })
+
+        # ==============================================================================================================
+        # combination 3: taskType == 'startSubOrg' && taskStatus == 'error'
+        # this combination performs the following steps in order either retry 'startSubOrg' task with a different subOrg
+        # or mark the job as failed dependng on job['failedAttempts']
+        # ==============================================================================================================
+        elif((task['taskType'] == "startSubOrg") and (task['taskStatus'] == 'error')):
+          # step 1: change the subOrg status to 'failed'
+          changeSubOrgStatus(task['subOrg'], mongodb, 'failed', log)
+
+          # add the subOrg to failedSubOrgs in the job
+          addTaskSubOrgToFailedSubOrgs(task, mongodb, log)
+
+          # step 2: add the successInfo to job from task
+          addErrorInfoToJob(task, mongodb)
+
+          # logging
+          log.warning("[Scheduler] Marking subOrg: {} as 'Failed To Start'.".format(str(task['subOrg'])))
+
+          # step 2: increase the job['failedAttempts'] counter in 'scheduledJobs' collection by 1
+          increaseJobFailedAttemptsCounter(task, mongodb, log)
+
+          # step 3: check if failedAttempts is bigger than limit
+          response = checkJobFailedAttemptsCounterIsBigger(task, mongodb)
+
+          # if true, mark the job as failed
+          if(response):
+            # change the job status to 'failed'
+            changeJobStatus(task['job_id'], mongodb, 'failed', log)
+
+            # delete the task as its lifecycle is finished
+            mongodb.tasks.delete_one({ "_id": task['_id'] })
+
+            # logging
+            log.warning("[Scheduler] Marking job_id: {} as 'Failed'.".format(str(task['job_id'])))
+          # else retry with a different subOrg
+          else:
+            # remove the subOrg and make the task pending again for boru to allocate and start a new subOrg
+            mongodb.tasks.update_one({ "_id": task['_id'] }, { "$unset": {"subOrg" : 1 }})
+            mongodb.tasks.update_one({ "_id": task['_id'] }, { "$set": { "taskStatus": "pending" } })
+
+            # logging
+            log.info("[Scheduler] Retrying 'startSubOrg' task. task_id: {}".format(str(task['_id'])))
+
+        # ===================================================================================
+        # combination 4: taskType == 'finishSubOrg' && taskStatus == 'pending'
+        # this combination performs the following steps in order to finish a subOrg for a job
+        # ===================================================================================
+        elif((task['taskType'] == "finishSubOrg") and (task['taskStatus'] == 'pending')):
+          # step 1: create a task buffer (information to pass into finish script / not stored in database)
+          taskBuffer = generateFinishSubOrgTaskBuffer(task)
+
+          # step 2: extract finishScriptName from job
+          finishScriptName = extractFinishScriptName(task, mongodb)
+
+          # step 3: converting str of the finishScriptName into a module
+          finishScriptNameConverted = customImportModule(finishScriptName, task, mongodb, log)
+          if(finishScriptNameConverted == 'error'):
+            # add error to task
+            writeErrorInfoToTask(task['_id'], mySubOrg, "Failed to convert Import Module", mongodb)
+
+            # step 4: update the taskStatus to error
+            mongodb.tasks.update_one({ "_id": task['_id'] }, { "$set": { "taskStatus": "error" } })
+            # logging
+            log.error("[Scheduler] Failed starting 'finishSubOrg' task. task_id: {}".format(str(task['_id'])))
+            break
+          else:
+            # step 4: start a thread with the converted 'finishScriptNameConverted' module and a main method
+            # note: all calls to any external scripts call a method named: main
+            threading.Thread(target = finishScriptNameConverted.main, args = (taskBuffer,)).start()
+
+            # step 5: update the taskStatus to running
+            mongodb.tasks.update_one({ "_id": task['_id'] }, { "$set": { "taskStatus": "running" } })
+
+            # logging
+            log.info("[Scheduler] Starting 'finishSubOrg' task. task_id: {}".format(str(task['_id'])))
+
+        # --------------------------------------------------------------------------------------
+        # combination 5: taskType == 'finishSubOrg' && taskStatus == 'ready'
+        # this combination performs the following steps in order to finish the task successfully
+        # --------------------------------------------------------------------------------------
+        elif((task['taskType'] == "finishSubOrg") and (task['taskStatus'] == 'ready')):
+          # step 1: push the subOrg from task['subOrg'] into job['finishedSubOrgs'] in 'scheduledJobs' collection
+          addSubOrgToFinishedSubOrgsInJob(task, mongodb, log)
+
+          # step 2: change the subOrg status to 'free'
+          changeSubOrgStatus(task['subOrg'], mongodb, 'free', log)
+          # chage the subOrg jobID back to: ""
+          mongodb.subOrgs.update_one({ "subOrgName": task['subOrg'] }, { "$set": { "jobID": " " } })
+
+          # logging
+          log.info("[Scheduler] Success. Removing 'finishSubOrg' task. task_id: {}".format(str(task['_id'])))
+
+          # step 3: delete the task as its lifecycle is finished
+          mongodb.tasks.delete_one({ "_id": task['_id'] })
+
+        # ---------------------------------------------------
+        # combination 6: taskType == 'finishSubOrg' && taskStatus == 'error'
+        # this combination performs the following steps in order either retry 'finishSubOrg'
+        # or mark the job as failed dependng on job['failedAttempts']
+        # ---------------------------------------------------
+        elif((task['taskType'] == "finishSubOrg") and (task['taskStatus'] == 'error')):
+
+          # logging
+          log.warning("[Scheduler] Marking subOrg: {} as 'Failed To Finish'.".format(str(task['subOrg'])))
+
+          # step 1: change the subOrg status to 'failedToFinish'
+          changeSubOrgStatus(task['subOrg'], mongodb, 'failedToFinish', log)
+
+          # step 2: increase the failedAttempts counter in scheduledJobs by 1
+          increaseJobFailedAttemptsCounter(task, mongodb, log)
+
+          # step 3: check if failedAttempts is bigger than limit
+          response = checkJobFailedAttemptsCounterIsBigger(task, mongodb)
+
+          # if true, mark the job as failed
+          if(response):
+            # change the job status to 'failed'
+            changeJobStatus(task['job_id'], mongodb, 'failed', log)
+
+            # logging
+            log.warning("[Scheduler] Marking job_id: {} as 'Failed'.".format(str(task['job_id'])))
+
+            # delete the task as its lifecycle is finished
+            mongodb.tasks.delete_one({ "_id": task['_id'] })
+          else:
+            # retry
+            mongodb.tasks.update_one({ "_id": task['_id'] }, { "$set": { "taskStatus": "pending" } })
+
+            # logging
+            log.info("[Scheduler] Retrying 'finishSubOrg' task. task_id: {}".format(str(task['_id'])))
+
+        # ------------------------------------------------------------------------------------
+        # combination 7: taskType == 'suspendSubOrg' && taskStatus == 'pending'
+        # this combination performs the following steps in order to suspend a subOrg for a job
+        # ------------------------------------------------------------------------------------
+        elif((task['taskType'] == "suspendSubOrg") and (task['taskStatus'] == 'pending')):
+          # step 1: create a task buffer (information to pass into finish script / not stored in database)
+          taskBuffer = generateSuspendAndResumeSubOrgTaskBuffer(task)
+
+          # step 2: extract suspendScriptName from job
+          suspendScriptName = extractSuspendScriptName(task, mongodb)
+
+          # step 3: converting str of the suspendScriptName into a module
+          suspendScriptNameConverted = customImportModule(suspendScriptName, task, mongodb, log)
+          if(suspendScriptNameConverted == 'error'):
+            # add error to task
+            writeErrorInfoToTask(task['_id'], mySubOrg, "Failed to convert Import Module", mongodb)
+            # step 4: update the taskStatus to error
+            mongodb.tasks.update_one({ "_id": task['_id'] }, { "$set": { "taskStatus": "error" } })
+            # logging
+            log.error("[Scheduler] Failed starting 'suspendSubOrg' task. task_id: {}".format(str(task['_id'])))
+            break
+          else:
+            # step 4: start a thread with the converted 'suspendScriptNameConverted' module and a main method
+            # note: all calls to any external scripts call a method named: main
+            threading.Thread(target = suspendScriptNameConverted.main, args = (taskBuffer,)).start()
+
+            # step 5: update the taskStatus to running
+            mongodb.tasks.update_one({ "_id": task['_id'] }, { "$set": { "taskStatus": "running" } })
+
+            # logging
+            log.info("[Scheduler] Starting 'suspendSubOrg' task. task_id: {}".format(str(task['_id'])))
+
+        # --------------------------------------------------------------------------------------
+        # combination 8: taskType == 'suspendSubOrg' && taskStatus == 'ready'
+        # this combination performs the following steps in order to finish the task successfully
+        # --------------------------------------------------------------------------------------
+        elif((task['taskType'] == "suspendSubOrg") and (task['taskStatus'] == 'ready')):
+
+          addSubOrgToSuspendedSubOrgsInJob(task, mongodb, log)
+
+          removeFirstSuspendTimeFromJob(task, mongodb, log)
+
+          # step 1: logging
+          log.info("[Scheduler] Success. Suspended subOrg {}".format(str(task['subOrg'])))
+
+          # step 2: delete the task as its lifecycle is finished
+          mongodb.tasks.delete_one({ "_id": task['_id'] })
+
+        # -------------------------------------------------------------------------------------- !!!
+        # combination 9: taskType == 'suspendSubOrg' && taskStatus == 'error'
+        # this combination performs the following steps in order to finish the task successfully
+        # --------------------------------------------------------------------------------------
+        elif((task['taskType'] == "suspendSubOrg") and (task['taskStatus'] == 'error')):
+
+          # step 1: logging
+          log.error("[Scheduler] Failed to suspend subOrg {}".format(str(task['subOrg'])))
+
+          # step 2: delete the task as its lifecycle is finished
+          mongodb.tasks.delete_one({ "_id": task['_id'] })
+
+
+
+        # ------------------------------------------------------------------------------------
+        # combination 10: taskType == 'resumeSubOrg' && taskStatus == 'pending'
+        # this combination performs the following steps in order to suspend a subOrg for a job
+        # ------------------------------------------------------------------------------------
+        elif((task['taskType'] == "resumeSubOrg") and (task['taskStatus'] == 'pending')):
+          # step 1: create a task buffer (information to pass into finish script / not stored in database)
+          taskBuffer = generateSuspendAndResumeSubOrgTaskBuffer(task)
+
+          # step 2: extract suspendScriptName from job
+          resumeScriptName = extractResumeScriptName(task, mongodb)
+
+          # step 3: converting str of the resumeScriptName into a module
+          resumeScriptNameConverted = customImportModule(resumeScriptName, task, mongodb, log)
+          if(resumeScriptNameConverted == 'error'):
+            # add error to task
+            writeErrorInfoToTask(task['_id'], mySubOrg, "Failed to convert Import Module", mongodb)
+            # step 4: update the taskStatus to error
+            mongodb.tasks.update_one({ "_id": task['_id'] }, { "$set": { "taskStatus": "error" } })
+            # logging
+            log.error("[Scheduler] Failed starting 'resumeSubOrg' task. task_id: {}".format(str(task['_id'])))
+            break
+          else:
+            # step 4: start a thread with the converted 'resumeScriptNameConverted' module and a main method
+            # note: all calls to any external scripts call a method named: main
+            threading.Thread(target = resumeScriptNameConverted.main, args = (taskBuffer,)).start()
+
+            # step 5: update the taskStatus to running
+            mongodb.tasks.update_one({ "_id": task['_id'] }, { "$set": { "taskStatus": "running" } })
+
+            # logging
+            log.info("[Scheduler] Starting 'resumeSubOrg' task. task_id: {}".format(str(task['_id'])))
+
+        # --------------------------------------------------------------------------------------
+        # combination 11: taskType == 'resumeSubOrg' && taskStatus == 'ready'
+        # this combination performs the following steps in order to finish the task successfully
+        # --------------------------------------------------------------------------------------
+        elif((task['taskType'] == "resumeSubOrg") and (task['taskStatus'] == 'ready')):
+
+          removeSubOrgToSuspendedSubOrgsInJob(task, mongodb, log)
+
+          removeFirstResumeTimeFromJob(task, mongodb, log)
+
+          # step 1: logging
+          log.info("[Scheduler] Success. Resumed subOrg {}".format(str(task['subOrg'])))
+
+          # step 2: delete the task as its lifecycle is finished
+          mongodb.tasks.delete_one({ "_id": task['_id'] })
+
+        # -------------------------------------------------------------------------------------- !!!
+        # combination 12: taskType == 'resumeSubOrg' && taskStatus == 'error'
+        # this combination performs the following steps in order to finish the task successfully
+        # --------------------------------------------------------------------------------------
+        elif((task['taskType'] == "resumeSubOrg") and (task['taskStatus'] == 'error')):
+
+          # step 1: logging
+          log.error("[Scheduler] Failed to resume subOrg {}".format(str(task['subOrg'])))
+
+          # step 2: delete the task as its lifecycle is finished
+          mongodb.tasks.delete_one({ "_id": task['_id'] })
+
+      # increase cycle and sleep
+      cycleCounter = cycleCounter + 1
+      time.sleep(5)
+
+    # ----
+    # jobs
+    # ----
+    # each job in 'scheduledJobs' collection either waits for time to start or it is in some stage of running(starting/finishing/etc.)
+    # Depending on the status of a job, boru will execute the appropriate code below.
+    # once a job is finished, it is archived in order to maintain the database.
+    else:
+      # getting currentTimeInUTC. this is used
+      # note the scheduler runs on UTC time, thats why .utcnow() is used
+      currentTimeInUTC = datetime.datetime.utcnow()
+
+      # getting all jobs
+      allJobs = getJobs(mongodb, log)
+
+      # looping through each job, depending on job['jobStatus'] run the following code
+      for job in allJobs:
+        # ----------------------
+        # jobStatus == 'pending'
+        # ----------------------
+        if(job['jobStatus'] == "pending"):
+          # if currentTimeInUTC is after job['startDate'], create startSubOrg tasks
+          if(currentTimeInUTC >= job['startDate']):
+            # create as many startSubOrg tasks depending on job['numberOfSubOrgs'], one task for each subOrg
+            for newTask in range(job['numberOfSubOrgs']):
+              # create a new task of type startSubOrg
+              createStartSubOrgTask(job, mongodb, log)
+
+            # after the required amount of tasks is created, mark the job as 'starting'
+            changeJobStatus(job['_id'], mongodb, 'starting', log)
+
+        # -----------------------
+        # jobStatus == 'starting'
+        # -----------------------
+        elif(job['jobStatus'] == "starting"):
+          # check if numberOfSubOrgs == length of job['subOrgs]
+          response = checkNumberOfSubOrgsIsEqualToSubOrgs(job['_id'], mongodb)
+
+          # if true, all subOrgs are running therefore mark the job as running
+          if(response):
+            # change the job status to 'running'
+            changeJobStatus(job['_id'], mongodb, 'running', log)
+            # notification ====================================================================================================================
+            # first get updated info about the job form db
+            jobUpToDate = getJob(job['_id'], mongodb)
+            processNotification("runningNotification", jobUpToDate)
+            # =================================================================================================================================
+
+        # -------------------------
+        # jobStatus == 'suspending'
+        # -------------------------
+        elif(job['jobStatus'] == "suspending"):
+          # check if numberOfSubOrgs == length of job['subOrgs]
+          response = checkNumberOfSubOrgsIsEqualSuspendedSubOrgs(job['_id'], mongodb)
+
+          # if true, all subOrgs are suspended therefore mark the job as suspended
+          if(response):
+            # change the job status to 'running'
+            changeJobStatus(job['_id'], mongodb, 'suspended', log)
+            # notification ====================================================================================================================
+            # first get updated info about the job form db
+            jobUpToDate = getJob(job['_id'], mongodb)
+            processNotification("suspendNotification", jobUpToDate)
+            # =================================================================================================================================
+
+        # -----------------------
+        # jobStatus == 'resuming'
+        # -----------------------
+        elif(job['jobStatus'] == "resuming"):
+          # check if numberOfSubOrgs == length of job['subOrgs]
+          response = checkNumberOfSubOrgsIsEqualZero(job['_id'], mongodb)
+
+          # if true, all subOrgs are running, the suspendedSubOrgs [] is empty therefore mark the job as running
+          if(response):
+            # change the job status to 'running'
+            changeJobStatus(job['_id'], mongodb, 'running', log)
+            # notification ====================================================================================================================
+            # first get updated info about the job form db
+            jobUpToDate = getJob(job['_id'], mongodb)
+            processNotification("resumeNotification", jobUpToDate)
+            # =================================================================================================================================
+
+        # ----------------------
+        # jobStatus == 'running'
+        # ----------------------
+        elif(job['jobStatus'] == "running"):
+          # if currentTimeInUTC is after job['finishDate'], create finishSubOrg tasks for each subOrg in job['subOrgs'] that are running
+          if(currentTimeInUTC >= job['finishDate']):
+            # create as many finishSubOrg tasks job['subOrgs'], one task for each subOrg in the list
+            for currentSubOrg in job['subOrgs']:
+              # create a new task of type finishSubOrg
+              createFinishSubOrgTask(job, currentSubOrg, mongodb, log)
+
+            # after the required amount of tasks is created, mark the job as 'finishing'
+            changeJobStatus(job['_id'], mongodb, 'finishing', log)
+
+          # look into suspending the job
+          # looks ugly I know... it works
+          else:
+            # check if the class wants to be suspended
+            if(job['suspend'] == "yes"):
+              # find the suspend time
+              for suspendTime in job['listOfSuspendTimes']:
+                # narrow down to the day in listOfSuspendTmes
+                if(currentTimeInUTC.day == suspendTime.day):
+                  # check if it is time to suspend
+                  if(currentTimeInUTC >= suspendTime):
+                    for subOrg in job['subOrgs']:
+                      createSuspendSubOrgTask(job, subOrg, mongodb, log)
+                    # after the required amount of tasks is created, mark the job as 'suspending'
+                    changeJobStatus(job['_id'], mongodb, 'suspending', log)
+                    break
+
+        # -----------------------
+        # jobStatus == 'suspended'
+        # -----------------------
+        # look into resuming the job
+        elif(job['jobStatus'] == "suspended"):
+          # find the resume time
+          for resumeTime in job['listOfResumeTimes']:
+            # narrow down to the day in listOfResumeTimes
+            if(currentTimeInUTC.day == resumeTime.day):
+              # check if it is time to suspend
+              if(currentTimeInUTC >= resumeTime):
+                for subOrg in job['subOrgs']:
+                  createResumeSubOrgTask(job, subOrg, mongodb, log)
+                # after the required amount of tasks is created, mark the job as 'suspending'
+                changeJobStatus(job['_id'], mongodb, 'resuming', log)
+                break
+
+        # ------------------------
+        # jobStatus == 'finishing'
+        # ------------------------
+        elif(job['jobStatus'] == "finishing"):
+          # check if length of job['subOrgs'] == length of job['finishedSubOrgs']
+          response = checkNumberOfSubOrgsIsEqualFinishedSubOrgs(job['_id'], mongodb)
+
+          # if true, mark the job as finished
+          if(response):
+            # change the job status to 'finished'
+            changeJobStatus(job['_id'], mongodb, 'finished', log)
+
+        # -----------------------
+        # jobStatus == 'finished'
+        # -----------------------
+        # archive the job and remove it from 'scheduledJobs' collection
+        elif(job['jobStatus'] == "finished"):
+          # first get updated info about the job form db (NEEDS To be before archive!)
+          jobUpToDate = getJob(job['_id'], mongodb)
+          # ---------------------------------------
+          archiveJob(job, mongodb, log)
+          # notification ====================================================================================================================
+          processNotification("finishNotification", jobUpToDate)
+          # =================================================================================================================================
+
+        # ---------------------
+        # jobStatus == 'failed'
+        # ---------------------
+        # archive the failed job and remove it from 'scheduledJobs' collection
+        elif(job['jobStatus'] == "failed"):
+          # first get updated info about the job form db (NEEDS To be before archive!)
+          jobUpToDate = getJob(job['_id'], mongodb)
+          # ---------------------------------------
+          archiveFailedJob(job, mongodb, log)
+          # notification ====================================================================================================================
+          processNotification("failNotification", jobUpToDate)
+          # =================================================================================================================================
+
+      cycleCounter = 0
+      time.sleep(5)
+
+
+# ----------------------
+# functions from here on
+# ----------------------
+
+# this function queries the 'tasks' collection and returns everything there
+# parameters:
+#  mongodb: allows this function to connect to mongo
+#  log: allows this function to log
+def getTasks(mongodb, log):
+  try:
+    allTasks = mongodb.tasks.find()
+    return allTasks
+  except Exception as e:
+    # logging
+    log.error("[scheduler] Failed to gather all tasks from 'tasks' collection: {}".format(str(e)))
+
+# this function queries the 'scheduledJobs' collection and returns everything there
+# parameters:
+#  mongodb: allows this function to connect to mongo
+#  log: allows this function to log
+def getJobs(mongodb, log):
+  try:
+    allJobs = mongodb.scheduledJobs.find()
+    return allJobs
+  except Exception as e:
+    # logging
+    log.error("[scheduler] Failed to gather all jobs from 'scheduledJobs' collection: {}".format(str(e)))
+
+# this function queries the 'subOrgs' collection. marks and returns the first subOrg with status 'free' that it finds
+# parameters:
+#  task: must contain: task['_id'] - in order to generate a new filed in the task with the subOrg found
+#  mongodb: allows this function to connect to mongo
+def findFreeSubOrg(task, mongodb):
+  # find a subOrg with status 'free'
+  allSubOrgs = mongodb.subOrgs.find()
+  for subOrg in allSubOrgs:
+    if((subOrg['status'] == 'free') and (subOrg['environment'] == task['environment'])):
+      # modify the subOrg status to 'starting'
+      mongodb.subOrgs.update_one({ "_id": subOrg['_id'] }, { "$set": { "status": "starting" } })
+      # mark the subOrg with jobID for reference
+      mongodb.subOrgs.update_one({ "_id": subOrg['_id'] }, { "$set": { "jobID": str(task['job_id']) } })
+      # add the new found subOrg to the task
+      mongodb.tasks.update_one({ "_id": task['_id'] }, { "$set": { "subOrg": str(subOrg['subOrgName'])} })
+      # return the subOrgName as the task is now outdated in memory beause a subOrg was added to DB above
+      return str(subOrg['subOrgName'])
+  # None will be returned and looked at after this function call
+
+# this function generates and returns information for a startSubOrg task that will be passed into a start script
+# parameters:
+#  task: must contain: task['_id'], task['subOrg']
+#  mySubOrg: name of the subOrg (must be a second variable because task is in memory, outdated from 'findFreeSubOrg' method call in main)
+def generateStartSubOrgTaskBuffer(task, mySubOrg, mongodb):
+
+  bufferJsonDocument = {"subOrg": mySubOrg, "parameters": []}
+
+  allJobs = mongodb.scheduledJobs.find()
+  for job in allJobs:
+    if(str(job['_id']) == str(task['job_id'])):
+      # job info
+      bufferJsonDocument.update(courseTemplate = str(job['courseTemplate']))
+      bufferJsonDocument.update(region = str(job['region']))
+      # for stack name
+      bufferJsonDocument.update(startDate = str(job['startDate']))
+      bufferJsonDocument.update(finishDate = str(job['finishDate']))
+      bufferJsonDocument.update(timezone = str(job['timezone']))
+      bufferJsonDocument.update(instructor = str(job['instructor']))
+      bufferJsonDocument.update(tag = str(job['tag']))
+      # task info
+      bufferJsonDocument.update(task_id = str(task['_id']))
+      bufferJsonDocument.update(sensor = str(task['sensor']))
+      bufferJsonDocument.update(courseName = str(task['courseName']))
+      bufferJsonDocument.update(courseParameters = str(task['courseParameters']))
+
+  return bufferJsonDocument
+
+# this function generates and returns information for a finishSubOrg task that will be passed into a finish script
+# parameters:
+#  task: must contain: task['_id'], task['subOrg'] (no need for a second subOrg variable as the task is up to date compared to generateStartSubOrgTaskBuffer)
+def generateFinishSubOrgTaskBuffer(task):
+  bufferJsonDocument = {"subOrg": str(task['subOrg'])}
+  bufferJsonDocument.update(task_id = str(task['_id']))
+  return bufferJsonDocument
+
+# this function generates and returns information for a finishSubOrg task that will be passed into a finish script
+# parameters:
+#  task: must contain: task['_id'], task['subOrg'], task['region']
+def generateSuspendAndResumeSubOrgTaskBuffer(task):
+  bufferJsonDocument = {"subOrg": str(task['subOrg'])}
+  bufferJsonDocument.update(task_id = str(task['_id']))
+  bufferJsonDocument.update(region = str(task['region']))
+  bufferJsonDocument.update(job_id = str(task['region']))
+  return bufferJsonDocument
+
+# this function goes through each parameter and processes it based on its type.
+# 'prompt' - looks for the value in scheduled jobs passed in by the user.
+# 'static' - uses the value predefined in the courses collection in the database.
+# 'list' - same as prompt, only the value entered by the user was checked against a list of valid inputs form the courses collection.
+# 'plugin-prompt' - uses the user input to pass into a plugin file, the file generates a new 'processed value' which is used.
+# 'plugin-static' - same procedure for plugin as above, but the plugin file uses a value passed in from the database in courses collection, not user prompt.
+# 'plugin-list' - same as plugin-prompt, only the value entered by the user was checked against a list of valid inputs form the courses collection.
+def processParameters(task, taskBuffer, subOrg, mongodb, log):
+
+  # list of all processed parameters to be added into task
+  processedParameters = []
+  # go through each parameter in taskBuffer['courseParameters']
+  # https://stackoverflow.com/questions/1894269/convert-string-representation-of-list-to-list
+
+  taskBufferParameters = taskBuffer.get("courseParameters")
+  # converting a str into a list
+  taskBufferParameters = ast.literal_eval(taskBufferParameters)
+
+  for parameter in taskBufferParameters:
+    # if 'paramType' == 'prompt'
+    if(str(parameter['paramType']) == "prompt"):
+      # get the Key of the parameter
+      paramKey = parameter['paramKey']
+      # get the Value of the parameter from a field in job named the same as 'parameter['paramKey']'
+      paramValue = processPromptValue(paramKey, task, mongodb, log)
+      # append paramKey and paramValue to 'processedParameters' list
+      processedParameters.append({paramKey : paramValue})
+
+    # elif 'paramType' == 'static'
+    elif(str(parameter['paramType']) == "static"):
+      # get the Key of the parameter
+      paramKey = parameter['paramKey']
+      # get the static Value of the parameter stored in DB as it is static
+      paramValue = parameter['paramValue']
+      # append paramKey and paramValue to 'processedParameters' list
+      processedParameters.append({paramKey : paramValue})
+
+    # elif 'paramType' == 'list'
+    elif(str(parameter['paramType']) == "list"):
+      # the value has been allready validated when making the request so it is very similar to 'prompt'
+      # get the Key of the parameter
+      paramKey = parameter['paramKey']
+      # get the Value of the parameter from a field in job named the same as 'parameter['paramKey']'
+      paramValue = processPromptValue(paramKey, task, mongodb, log)
+      # append paramKey and paramValue to 'processedParameters' list
+      processedParameters.append({paramKey : paramValue})
+
+    # elif 'paramType' == 'plugin-prompt'
+    elif(str(parameter['paramType']) == "plugin-prompt"):
+      # get the Key of the parameter
+      paramKey = parameter['paramKey']
+      # get the Value of the parameter from a field in job named the same as 'parameter['paramKey']'
+      paramUnprocessedValue = processPromptValue(paramKey, task, mongodb, log)
+      # get the paramFile as it is required to process the plugin
+      paramFile = parameter['paramFile']
+      # now run and process the parameter as it is a plugin
+      paramValue = processPlugin(paramFile, paramKey, paramUnprocessedValue, task, subOrg)
+
+      for key in paramValue:
+        value = paramValue[key]
+        # if error returned from plugin, fail task and log error
+        if(checkParamValueForError(key)):
+          # log error
+          log.error("[Scheduler] Failed to process plugin parameter: {}. Plugin response: {}".format(str(parameter['paramKey']), str(value)))
+          # add error to task
+          writeErrorInfoToTask(task['_id'], subOrg, str(value), mongodb)
+          # mark task as error
+          mongodb.tasks.update_one({ "_id": task['_id'] }, { "$set": { "taskStatus": "error"}})
+          log.error("[Scheduler] Marked task as 'error'.")
+          # return
+          return("error")
+        # append paramKey and paramValue to 'processedParameters' list
+        processedParameters.append({paramKey : value})
+        break
+
+    # elif 'paramType' == 'plugin-static'
+    elif(str(parameter['paramType']) == "plugin-static"):
+      # get the Key of the parameter
+      paramKey = parameter['paramKey']
+      # get the paramFile as it is required to process the plugin
+      paramFile = parameter['paramFile']
+      # get the static Value of the parameter stored in DB as it is static
+      paramUnprocessedValue = parameter['paramValue']
+      # now run and process the parameter as it is a plugin
+      paramValue = processPlugin(paramFile, paramKey, paramUnprocessedValue, task, subOrg)
+
+      for key in paramValue:
+        value = paramValue[key]
+        # if error returned from plugin, fail task and log error
+        if(checkParamValueForError(key)):
+          # log error
+          log.error("[Scheduler] Failed to process plugin parameter: {}. Plugin response: {}".format(str(parameter['paramKey']), str(value)))
+          # add error to task
+          writeErrorInfoToTask(task['_id'], subOrg, str(value), mongodb)
+          # mark task as error
+          mongodb.tasks.update_one({ "_id": task['_id'] }, { "$set": { "taskStatus": "error"}})
+          log.error("[Scheduler] Marked task as 'error'.")
+          # return
+          return("error")
+        # append paramKey and paramValue to 'processedParameters' list
+        processedParameters.append({paramKey : value})
+        break
+
+    # elif 'paramType' == 'plugin-list'
+    elif(str(parameter['paramType']) == "plugin-list"):
+      # the value has been allready validated when making the request so it is very similar to 'plugin-prompt'. the user input must be used to process the plugin
+      # get the Key of the parameter
+      paramKey = parameter['paramKey']
+      # get the paramFile as it is required to process the plugin
+      paramFile = parameter['paramFile']
+      # get the Value of the parameter from a field in job named the same as 'parameter['paramKey']'
+      paramUnprocessedValue = processPromptValue(paramKey, task, mongodb, log)
+      # get the paramFile as it is required to process the plugin
+      paramFile = parameter['paramFile']
+      # now run and process the parameter as it is a plugin
+      paramValue = processPlugin(paramFile, paramKey, paramUnprocessedValue, task, subOrg)
+
+      for key in paramValue:
+        value = paramValue[key]
+        # if error returned from plugin, fail task and log error
+        if(checkParamValueForError(key)):
+          # log error
+          log.error("[Scheduler] Failed to process plugin parameter: {}. Plugin response: {}".format(str(parameter['paramKey']), str(value)))
+          # add error to task
+          writeErrorInfoToTask(task['_id'], subOrg, str(value), mongodb)
+          # mark task as error
+          mongodb.tasks.update_one({ "_id": task['_id'] }, { "$set": { "taskStatus": "error"}})
+          log.error("[Scheduler] Marked task as 'error'.")
+          # return
+          return("error")
+        # append paramKey and paramValue to 'processedParameters' list
+        processedParameters.append({paramKey : value})
+        break
+
+  taskBuffer['parameters'].append(processedParameters)
+  # update parameters
+  mongodb.tasks.update_one({ "_id": task['_id'] }, { "$set": { "parameters": processedParameters}})
+  # courseParameters are no longer used. instead, 'parameters' are used when starting a subOrg
+  # .....
+  return taskBuffer
+
+# write the error to the task in order for it to be written to the job
+def writeErrorInfoToTask(task_id, accountName, error, mongodb):
+  mongodb.tasks.update_one({ "_id": task_id }, { "$push": { "errorInfo": accountName } })
+  mongodb.tasks.update_one({ "_id": task_id }, { "$push": { "errorInfo": str(error) } })
+
+def checkParamValueForError(paramValue):
+  if(paramValue == "error"):
+    return True
+  return False
+
+def processPlugin(paramFile, paramKey, paramValue, task, subOrg):
+  # convert str of paramFile into a callable module
+  try:
+    moduleString = "scripts." + str(paramFile)
+    pluginNameModule = import_module(str(moduleString))
+  except:
+    moduleString = "plugins." + str(paramFile)
+    pluginNameModule = import_module(str(moduleString))
+
+  # get the processed response Value from the plugin
+  pluginResponse = pluginNameModule.getIdentifier(subOrg, task["region"], paramValue)
+  # converting the str variable into a dict
+  pluginResponseInJson = json.loads(pluginResponse)
+  return pluginResponseInJson
+
+def processPromptValue(paramKey, task, mongodb, log):
+  allJobs = getJobs(mongodb, log)
+  for job in allJobs:
+    if(str(job['_id']) == str(task['job_id'])):
+      for jobParam in job:
+        if(str(jobParam) == str(paramKey)):
+          paramValue = job[jobParam]
+          return paramValue
+
+
+# this function creates a new startSubOrg task with the information contained in this method
+# parameters:
+#  job: to extract relevant information about the job
+#  mongodb: allows this function to connect to mongo
+#  log: allows this function to log
+def createStartSubOrgTask(job, mongodb, log):
+
+  startSubOrgTaskBuffer = {"job_id": str(job['_id'])}
+
+  courseParameters = []
+
+  jobCourseInformation = mongodb.courses.find_one({"courseName" : job['courseName']})
+
+  for paramObject in jobCourseInformation['cloudFormationParameters']:
+    courseParameters.append(paramObject)
+
+  startSubOrgTaskBuffer.update(courseParameters = courseParameters)
+
+  startSubOrgTaskBuffer.update(taskType = "startSubOrg")
+  startSubOrgTaskBuffer.update(region = str(job['region']))
+  startSubOrgTaskBuffer.update(sensor = str(job['sensor']))
+  startSubOrgTaskBuffer.update(courseName = str(job['courseName']))
+  startSubOrgTaskBuffer.update(environment = str(job['environment']))
+  startSubOrgTaskBuffer.update(taskStatus = "pending")
+  startSubOrgTaskBuffer.update(successInfo = [])
+  startSubOrgTaskBuffer.update(errorInfo = [])
+  # mongodb
+  mongodb.tasks.insert_one(startSubOrgTaskBuffer)
+  # logging
+  log.info("[Scheduler] Created 'startSubOrg' task for job_id: {}".format(str(job['_id'])))
+
+# this function creates a new finishSubOrg task with the information contained in this method
+# parameters:
+#  job: to extract relevant information about the job into
+#  subOrg: the subOrg name to suspend
+#  mongodb: allows this function to connect to mongo
+#  log: allows this function to log
+def createFinishSubOrgTask(job, currentSubOrg, mongodb, log):
+  startSubOrgTaskBuffer = {"job_id": str(job['_id'])}
+  startSubOrgTaskBuffer.update(taskType = "finishSubOrg")
+  startSubOrgTaskBuffer.update(subOrg = str(currentSubOrg))
+  startSubOrgTaskBuffer.update(taskStatus = "pending")
+  # mongodb
+  mongodb.tasks.insert_one(startSubOrgTaskBuffer)
+  # logging
+  log.info("[Scheduler] Created 'finishSubOrg' task for job_id: {}".format(str(job['_id'])))
+
+
+# this function creates a new suspendSubOrg task
+# parameters:
+#  job: to extract relevant information about the job
+#  mongodb: allows this function to connect to mongo
+#  log: allows this function to log
+def createSuspendSubOrgTask(job, subOrg, mongodb, log):
+  suspendSubOrgTaskBuffer = {"job_id": str(job['_id'])}
+  suspendSubOrgTaskBuffer.update(region = str(job['region']))
+  suspendSubOrgTaskBuffer.update(subOrg = subOrg)
+  suspendSubOrgTaskBuffer.update(taskType = "suspendSubOrg")
+  suspendSubOrgTaskBuffer.update(taskStatus = "pending")
+  # mongodb
+  mongodb.tasks.insert_one(suspendSubOrgTaskBuffer)
+  # logging
+  log.info("[Scheduler] Created 'suspendSubOrg' task for job_id: {}".format(str(job['_id'])))
+
+# this function creates a new suspendSubOrg task
+# parameters:
+#  job: to extract relevant information about the job
+#  mongodb: allows this function to connect to mongo
+#  log: allows this function to log
+def createResumeSubOrgTask(job, subOrg, mongodb, log):
+  resumeSubOrgTaskBuffer = {"job_id": str(job['_id'])}
+  resumeSubOrgTaskBuffer.update(region = str(job['region']))
+  resumeSubOrgTaskBuffer.update(subOrg = subOrg)
+  resumeSubOrgTaskBuffer.update(taskType = "resumeSubOrg")
+  resumeSubOrgTaskBuffer.update(taskStatus = "pending")
+  # mongodb
+  mongodb.tasks.insert_one(resumeSubOrgTaskBuffer)
+  # logging
+  log.info("[Scheduler] Created 'resumeSubOrg' task for job_id: {}".format(str(job['_id'])))
+
+# this function extracts the startScriptName from 'scheduledJobs' collection using the job id from the task that is passed in
+# parameters:
+#  task: must contain: task['job_id']
+#  mongodb: allows this function to connect to mongo
+def extractStartScriptName(task, mongodb):
+  allJobs = mongodb.scheduledJobs.find()
+  for job in allJobs:
+    if(str(job['_id']) == str(task['job_id'])):
+      return job['startScriptName']
+
+# this function extracts the finishScriptName from 'scheduledJobs' collection using the job id from the task that is passed in
+# parameters:
+#  task: must contain: task['job_id']
+#  mongodb: allows this function to connect to mongo
+def extractFinishScriptName(task, mongodb):
+  allJobs = mongodb.scheduledJobs.find()
+  for job in allJobs:
+    if(str(job['_id']) == str(task['job_id'])):
+      return job['finishScriptName']
+
+# this function extracts the suspendScriptName from 'scheduledJobs' collection using the job id from the task that is passed in
+# parameters:
+#  task: must contain: task['job_id']
+#  mongodb: allows this function to connect to mongo
+def extractSuspendScriptName(task, mongodb):
+  allJobs = mongodb.scheduledJobs.find()
+  for job in allJobs:
+    if(str(job['_id']) == str(task['job_id'])):
+      return job['suspendScriptName']
+
+# this function extracts the resumeScriptName from 'scheduledJobs' collection using the job id from the task that is passed in
+# parameters:
+#  task: must contain: task['job_id']
+#  mongodb: allows this function to connect to mongo
+def extractResumeScriptName(task, mongodb):
+  allJobs = mongodb.scheduledJobs.find()
+  for job in allJobs:
+    if(str(job['_id']) == str(task['job_id'])):
+      return job['resumeScriptName']
+
+
+# this function appends task['subOrg'] into job['subOrgs'] in 'scheduledJobs' collection using task['job_id']
+# parameters:
+#  task: must contain: task['job_id'], task['subOrg']
+#  mongodb: allows this function to connect to mongo
+#  log: allows this function to log
+def addSubOrgToSubOrgsInJob(task, mongodb, log):
+  allJobs = mongodb.scheduledJobs.find()
+  for job in allJobs:
+    if(str(job['_id']) == str(task['job_id'])):
+      mongodb.scheduledJobs.update_one({ "_id": job['_id'] }, { "$push": { "subOrgs": str(task['subOrg'])} })
+      # logging
+      log.info("[Scheduler] Adding subOrg: {} to job. job_id: {}".format(str(task['subOrg']), str(task['job_id'])))
+      break
+
+# this function appends task['subOrg'] into job['finishedSubOrgs'] in 'scheduledJobs' collection using task['job_id']
+# parameters:
+#  task: must contain: task['job_id'], task['subOrg']
+#  mongodb: allows this function to connect to mongo
+#  log: allows this function to log
+def addSubOrgToFinishedSubOrgsInJob(task, mongodb, log):
+  allJobs = mongodb.scheduledJobs.find()
+  for job in allJobs:
+    if(str(job['_id']) == str(task['job_id'])):
+      mongodb.scheduledJobs.update_one({ "_id": job['_id'] }, { "$push": { "finishedSubOrgs": str(task['subOrg'])} })
+      # logging
+      log.info("[Scheduler] Adding subOrg: {} to 'finishedSubOrgs'. job_id: {}".format(str(task['subOrg']), str(task['job_id'])))
+      break
+
+def addSubOrgToSuspendedSubOrgsInJob(task, mongodb, log):
+  allJobs = mongodb.scheduledJobs.find()
+  for job in allJobs:
+    if(str(job['_id']) == str(task['job_id'])):
+      mongodb.scheduledJobs.update_one({ "_id": job['_id'] }, { "$push": { "suspendedSubOrgs": str(task['subOrg'])} })
+      # logging
+      log.info("[Scheduler] Adding subOrg: {} to 'suspendedSubOrgs'. job_id: {}".format(str(task['subOrg']), str(task['job_id'])))
+      break
+
+def removeSubOrgToSuspendedSubOrgsInJob(task, mongodb, log):
+  allJobs = mongodb.scheduledJobs.find()
+  for job in allJobs:
+    if(str(job['_id']) == str(task['job_id'])):
+      mongodb.scheduledJobs.update_one({ "_id": job['_id'] }, { "$pull": { "suspendedSubOrgs": str(task['subOrg'])} })
+      # logging
+      log.info("[Scheduler] Adding subOrg: {} to 'suspendedSubOrgs'. job_id: {}".format(str(task['subOrg']), str(task['job_id'])))
+      break
+
+def removeFirstResumeTimeFromJob(task, mongodb, log):
+  allJobs = mongodb.scheduledJobs.find()
+  for job in allJobs:
+    if(str(job['_id']) == str(task['job_id'])):
+      mongodb.scheduledJobs.update_one({ "_id": ObjectId(job['_id']) }, { "$pop": { "listOfResumeTimes": -1 } })
+      # logging
+      log.info("[Scheduler] Removing first 'listOfResumeTimes'element from job_id: {}".format(str(task['job_id'])))
+      break
+
+def removeFirstSuspendTimeFromJob(task, mongodb, log):
+  allJobs = mongodb.scheduledJobs.find()
+  for job in allJobs:
+    if(str(job['_id']) == str(task['job_id'])):
+      mongodb.scheduledJobs.update_one({ "_id": ObjectId(job['_id']) }, { "$pop": { "listOfSuspendTimes": -1 } })
+      # logging
+      log.info("[Scheduler] Removing first 'listOfSuspendTimes'element from job_id: {}".format(str(task['job_id'])))
+      break
+
+# this function changes the status of a subOrg in 'subOrgs' collection
+# it uses the subOrg name passed in along with a new status also passed in to determine what subOrg to change and to what new status
+# parameters:
+#  subOrgToModify: the name of the subOrg that will be modified
+#  mongodb: allows this function to connect to mongo
+#  newStatus: the name of the new status for the subOrg
+#  log: allows this function to log
+def changeSubOrgStatus(subOrgToModify, mongodb, newStatus, log):
+  allSubOrgs = mongodb.subOrgs.find()
+  for subOrg in allSubOrgs:
+    if(subOrg['subOrgName'] == str(subOrgToModify)):
+      # modify the subOrg
+      mongodb.subOrgs.update_one({ "_id": subOrg['_id'] }, { "$set": { "status": newStatus } })
+      # logging
+      log.info("[Scheduler] Changing subOrg Status to: '{}' for subOrg. subOrgName: {}".format(newStatus, str(subOrg['subOrgName'])))
+      break
+
+# this function changes the status of a job in 'scheduledJobs' collection
+# it uses the job id passed in along with a new status also passed in
+# parameters:
+#  job_id: the id on the job
+#  mongodb: allows this function to connect to mongo
+#  newStatus: the name of the new status for the job
+#  log: allows this function to log
+def changeJobStatus(job_id, mongodb, newStatus, log):
+  allJobs = mongodb.scheduledJobs.find()
+  for job in allJobs:
+    if(str(job['_id']) == str(job_id)):
+      mongodb.scheduledJobs.update_one({ "_id": job['_id'] }, { "$set": { "jobStatus": newStatus} })
+      # logging
+      log.info("[Scheduler] Changing 'jobStatus' to: '{}' for job. job_id: {}".format(newStatus, str(job['_id'])))
+      break
+
+# converting str of the scriptName into a module
+def customImportModule(scriptName, task, mongodb, log):
+  try:
+    try:
+      moduleString = "scripts." + str(scriptName)
+      scriptNameConvertedToModule = import_module(str(moduleString))
+    except:
+      moduleString = "plugins." + str(scriptName)
+      scriptNameConvertedToModule = import_module(str(moduleString))
+    # return the module
+    return scriptNameConvertedToModule
+  except Exception as e:
+    # logging
+    log.warning("[Scheduler] Failed to convert and import module for task. Error: {}".format(str(e)))
+    # delete the task as its lifecycle is finished
+    mongodb.tasks.update_one({ "_id": task['_id'] }, { "$set": { "taskStatus": "error" } })
+    # logging
+    log.warning("[Scheduler] Marking '{}' task. as error: {}".format(str(task['taskType']), str(task['_id'])))
+    return ("error")
+
+# this function increases the 'failedAttempts' field by 1 of a job task['job_id'] in the 'scheduledJobs' collection
+# parameters:
+#  task: must contain: task['job_id']
+#  mongodb: allows this function to connect to mongo
+#  log: allows this function to log
+def increaseJobFailedAttemptsCounter(task, mongodb, log):
+  allJobs = mongodb.scheduledJobs.find()
+  for job in allJobs:
+    if(str(job['_id']) == str(task['job_id'])):
+      # get the number
+      numberOfFailedAttempts = job["failedAttempts"]
+      # add +1 to numberOfFailedAttempts
+      numberOfFailedAttempts = numberOfFailedAttempts + 1
+      # modify the job
+      mongodb.scheduledJobs.update_one({ "_id": job['_id'] }, { "$set": { "failedAttempts": int(numberOfFailedAttempts)} })
+      # logging
+      log.info("[Scheduler] Changing 'numberOfFailedAttempts' to: {} for job. job_id: {}".format(str(numberOfFailedAttempts), str(job['_id'])))
+
+# this function checks if 'failedAttempts' field is bigger than the limit specified. if so, it returns True
+# parameters:
+#  task: must contain: task['job_id']
+#  mongodb: allows this function to connect to mongo
+def checkJobFailedAttemptsCounterIsBigger(task, mongodb):
+  allJobs = mongodb.scheduledJobs.find()
+  for job in allJobs:
+    if(str(job['_id']) == str(task['job_id'])):
+      # get the number
+      numberOfFailedAttempts = job["failedAttempts"]
+      # check
+      if(int(numberOfFailedAttempts) >= 5):
+        return True
+      else:
+        return False
+
+# this function checks if the length of the 'subOrgs' list field in 'scheduledJobs' collection is
+# the same as the 'numberOfSubOrgs' field. the job id passed in in order to fing the job in question
+# parameters:
+#  job_id: the id of the job to be checked
+#  mongodb: allows this function to connect to mongo
+def checkNumberOfSubOrgsIsEqualToSubOrgs(job_id, mongodb):
+  allJobs = mongodb.scheduledJobs.find()
+  for job in allJobs:
+    if(str(job['_id']) == str(job_id)):
+      numberOfSubOrgs = job['numberOfSubOrgs']
+      if(numberOfSubOrgs == len(job['subOrgs'])):
+        return True
+      else:
+        return False
+
+# this function checks if the length of the job['subOrgs'] array filed is the same as
+# the length of job['finishedSubOrgs'] array field in order to confirm all the subOrgs are finished
+# (job['finishedSubOrgs'] is updated once a finishSubOrg task successfully finishes. if not, the task itself changes the job['jobStatus'] to failed)
+# parameters:
+#  job_id: the id of the job to be checked
+#  mongodb: allows this function to connect to mongo
+def checkNumberOfSubOrgsIsEqualFinishedSubOrgs(job_id, mongodb):
+  allJobs = mongodb.scheduledJobs.find()
+  for job in allJobs:
+    if(str(job['_id']) == str(job_id)):
+      if(len(job['subOrgs']) == len(job['finishedSubOrgs'])):
+        return True
+      else:
+        return False
+
+
+def checkNumberOfSubOrgsIsEqualSuspendedSubOrgs(job_id, mongodb):
+  allJobs = mongodb.scheduledJobs.find()
+  for job in allJobs:
+    if(str(job['_id']) == str(job_id)):
+      if(len(job['subOrgs']) == len(job['suspendedSubOrgs'])):
+        return True
+      else:
+        return False
+
+def checkNumberOfSubOrgsIsEqualZero(job_id, mongodb):
+  allJobs = mongodb.scheduledJobs.find()
+  for job in allJobs:
+    if(str(job['_id']) == str(job_id)):
+      if(len(job['suspendedSubOrgs']) == 0):
+        return True
+      else:
+        return False
+
+# this function moves the whole job and inserts its information into 'archivedJobs' collection.
+# it also delets the job from the 'scheduledJobs' collection
+# parameters:
+#  job: the whole job and its information
+#  mongodb: allows this function to connect to mongo
+#  log: allows this function to log
+def archiveJob(job, mongodb, log):
+  try:
+    # Move the job(scheduledJob) into the archivedJobs Collection
+    mongodb.archivedJobs.insert_one(job)
+  except Exception as e:
+    log.exception("Failed to archive job")
+    # mark the job as Failed to archive
+    changeJobStatus(job['_id'], mongodb, 'failedToArchive', log)
+    # exit
+    return
+  # Delete the job(scheduledJob) from scheduledJobs Collection
+  mongodb.scheduledJobs.delete_one({ "_id" : ObjectId(str(job['_id'])) })
+  # logging
+  log.info("[Scheduler] Archived job to archivedJobs collection. job_id: {}".format(str(job['_id'])))
+
+# this function moves the whole job and inserts its information into 'failedJobs' collection.
+# it also delets the job from the 'scheduledJobs' collection
+# parameters:
+#  job: the whole job and its information
+#  mongodb: allows this function to connect to mongo
+#  log: allows this function to log
+def archiveFailedJob(job, mongodb, log):
+  # add a cleanedUp variable and set it to false, this is used to indicate is some subOrgs will be running
+  #mongodb.scheduledJobs.update_one({ "_id": job['_id'] }, { "$set": { "cleanedUp": "no" } })
+  # Move the job(scheduledJob) into the archivedJobs Collection
+  try:
+    mongodb.failedJobs.insert_one(job)
+  except Exception as e:
+    log.exception("Failed to archive failed job")
+    # mark the job as Failed to archive
+    changeJobStatus(job['_id'], mongodb, 'failedToArchive', log)
+    # exit
+    return
+  # Delete the job(scheduledJob) from scheduledJobs Collection
+  mongodb.scheduledJobs.delete_one({ "_id" : ObjectId(str(job['_id'])) })
+  # logging
+  log.info("[Scheduler] Moved job to failedJobs collection. job_id: {}".format(str(job['_id'])))
+
+# this function looks at the job_id in the task and compares is with all jobs in scheduledJobs collection.
+# if the job with task job_id is in scheduledJobs, all good. else, return False
+def checkJobStillInScheduledJobs(taskJobId, mongodb, log):
+  allJobs = mongodb.scheduledJobs.find()
+  for job in allJobs:
+    if(str(job['_id']) == str(taskJobId)):
+      return True
+  log.warning("[Scheduler] the job for current task no longer exists.")
+  return False
+
+def addTaskSubOrgToFailedSubOrgs(task, mongodb, log):
+  currentTask = mongodb.tasks.find_one({ "_id": ObjectId(str(task['_id']))}, { "subOrg":1, "_id":0 })
+  for i in currentTask:
+    taskSubOrg = currentTask[i]
+    break
+  mongodb.scheduledJobs.update_one({"_id": ObjectId(str(task['job_id']))}, { "$push": { "failedSubOrgs": str(taskSubOrg)}})
+
+# this function marks the job as failed and delets the task that noticed there are no more subOrgs available for the environment.
+def failJobAndDeleteTask(task, mongodb):
+  # try because many tasks could be allready running
+  try:
+    # need to get the job of this task
+    allJobs = getJobs(mongodb, log)
+    for job in allJobs:
+      if(str(job['_id']) == str(task['job_id'])):
+        # mark the whole job as failed and send notify email
+        # change the job status to 'failed'
+        changeJobStatus(job['_id'], mongodb, 'failed', log)
+        # notification ============================================================================================================
+        processNotification("failNotification", job)
+        # =========================================================================================================================
+        # archive the job to prevent a loop of notifications for each subOrg. Key step. the left-over tasks will be deleted as usual
+        archiveFailedJob(job, mongodb, log)
+        # delete the task as its lifecycle is finished
+        mongodb.tasks.delete_one({ "_id": task['_id'] })
+        break
+  except:
+    pass
+
+def addSuccessInfoToJob(task, mongodb):
+  mongodb.scheduledJobs.update_one({ "_id": ObjectId(task['job_id']) }, { "$push": { "successInfo": task['successInfo'] } })
+
+def addErrorInfoToJob(task, mongodb):
+  mongodb.scheduledJobs.update_one({ "_id": ObjectId(task['job_id']) }, { "$push": { "errorInfo": task['errorInfo'] } })
+
+def processNotification(notificationAction, job):
+  try:
+    # there are 6 possible nofification actions:
+    #   1. scheduleNotification {might be tricky(maybe a flag to tell the notification run(cant be running every scheduler cycle))}
+    #   2. runningNotification
+    #   3. suspendNotification
+    #   4. resumeNotification
+    #   5. finishNotification
+    #   6. failNotification
+
+    # there are 3 possible types for each notification:
+    #   1. static - read the recipients and files directly from the database
+    #   2. prompt - the user input stored in job will be used for recipients and files
+    #   3. list   - same as prompt but only inputs from user which are in 'validInput' are valid
+
+    # when a notification is called, 'notificationFile' is used
+    # a notification call (this function in boru) takes in:
+
+    # all the notifications(recipients and files) will be appended to the job
+    # everythong from the job will be used. not form db.courses as job contains user input
+    # ==================================================================================================
+    # code:
+    for notification in job['notifications']:
+      if(str(notification['notificationAction']) == str(notificationAction)):
+        # extract th info
+        notificationFileName = notification['notificationFile']
+        notificationRecipients = notification['recipients']
+        # need to convert a str to actual module to run
+        moduleString = "notificationPlugins." + str(notificationFileName)
+        notificationFileNameConverted = import_module(str(moduleString))
+        message = notification['notificationAction']
+
+        # logging
+        log.info("[Scheduler] About to send Notification...")
+        # run the notification (each notify function will be: notify(recipient, job, message))
+        threading.Thread(target = notificationFileNameConverted.notify, args = (notificationRecipients,job,message,)).start()
+        # logging
+        log.info("[Scheduler] Handed '{}' Notification to: '{}'".format(str(notification['notificationAction']), str(notificationFileName)))
+  except Exception as e:
+    log.exception("[Scheduler] Function processNotification Failed.")
+
+# used before every notification to pass in the most up to date job
+# Note: when archiving, make sure to call this function before archive methods like archiveJob() as the job will be moved.
+def getJob(job_id, mongodb):
+  # get all jobs
+  allJobs = mongodb.scheduledJobs.find()
+  # look for the same _id
+  for job in allJobs:
+    if(str(job['_id']) == str(job_id)):
+      # return the job with up to date information
+      return job
+  return("Internal Error!: No job found!")
+
+# -----
+# start
+if __name__ == '__main__':
+  main()

@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 
 # Jaroslaw Glodowski
-# version: 0.8.1
+# version: 0.8.2
 # RequestHandler.py - validates inputs, creates additional fields for request and inserts the request to mongo
 
-import pymongo, datetime, json, logging
+import pymongo, datetime, json, logging, re
 from datetime import timedelta
 import pytz
 from pytz import timezone
@@ -25,16 +25,20 @@ log = logging.getLogger('boru')
 # Environments located in config Collection in boruDB
 # Regions located in config Collection in boruDB
 
-# amount of subOrgs limit per class 
-subOrgLimitPerClass = config.getConfig("subOrgLimitPerClass")
-# amount of all subOrgs to be kept 'free' when validating a request
-freeSubOrgsBuffer = config.getConfig("freeSubOrgsBuffer")
-# time a class starts
-startHour = config.getConfig("startHour")
-startMinute = config.getConfig("startMinute")
-# time a class finished
-finishHour = config.getConfig("finishHour")
-finishMinute = config.getConfig("finishMinute")
+# amount of subOrgs limit per class
+try:
+  subOrgLimitPerClass = config.getConfig("subOrgLimitPerClass")
+  # amount of all subOrgs to be kept 'free' when validating a request
+  freeSubOrgsBuffer = config.getConfig("freeSubOrgsBuffer")
+  # time a class starts
+  startHour = config.getConfig("startHour")
+  startMinute = config.getConfig("startMinute")
+  # time a class finished
+  finishHour = config.getConfig("finishHour")
+  finishMinute = config.getConfig("finishMinute")
+except Exception as e:
+  log.error("[RequestHandler] Error: {} in config.py. Please update config.py and run 'restartBoru'".format(str(e)))
+  exit
 # --------------------------------------------------------------------
 # the format datetime uses(don't change unless code below is modified)
 datetimeFormat = "%Y-%m-%d"
@@ -115,6 +119,36 @@ def insertAwsClass(request):
     # logging
     log.warning("[RequestHandler] Failed to schedule class: '{}' provided by user is not valid: Valid List'{}'".format(str(request['region']), str(response[1])))
     error = "Failed to schedule class: 'region' is not valid. List of valid regions: {}".format(response[1])
+    return {"error": error}
+
+  # validate Regular Expresstion Instructor
+  response = validateRegularExpression(str(request['instructor']), "[a-zA-Z][-a-zA-Z0-9]*")
+  if(not response[0]):
+    # closing mongo connection
+    mongoClient.close()
+    # logging
+    log.warning("[RequestHandler] Value: '{}' provided by user does not match the regular expression: '{}'".format(str(request['instructor']), str(response[1])))
+    error = "Failed to schedule class: Value: '{}' provided by user does not match the regular expression: '{}'".format(str(request['instructor']), str(response[1]))
+    return {"error": error}
+
+  # validate Regular Expresstion Tag
+  response = validateRegularExpression(str(request['tag']), "[a-zA-Z][-a-zA-Z0-9]*")
+  if(not response[0]):
+    # closing mongo connection
+    mongoClient.close()
+    # logging
+    log.warning("[RequestHandler] Value: '{}' provided by user does not match the regular expression: '{}'".format(str(request['tag']), str(response[1])))
+    error = "Failed to schedule class: Value: '{}' provided by user does not match the regular expression: '{}'".format(str(request['tag']), str(response[1]))
+    return {"error": error}
+
+  # validate Regular Expresstion Sender
+  response = validateRegularExpression(str(request['sender']), "[a-zA-Z][-a-zA-Z0-9]*")
+  if(not response[0]):
+    # closing mongo connection
+    mongoClient.close()
+    # logging
+    log.warning("[RequestHandler] Value: '{}' provided by user does not match the regular expression: '{}'".format(str(request['sender']), str(response[1])))
+    error = "Failed to schedule class: Value: '{}' provided by user does not match the regular expression: '{}'".format(str(request['sender']), str(response[1]))
     return {"error": error}
 
   # validating finishDate is not 'now'
@@ -457,7 +491,13 @@ def validateAmountOfFreeSubOrgs(request, mongodb):
 # uses the config file to get a list of supported timezones
 def validateTimezone(request):
   # get all timezones from config file
-  listOfSupportedTimezones = config.getConfig("timezone")
+  try:
+    listOfSupportedTimezones = config.getConfig("timezone")
+  except Exception as e:
+    errorMessage = "[RequestHandler] Error: {} in config.py. Please update config.py and run 'restartBoru'".format(str(e))
+    log.error(errorMessage)
+    return [False, errorMessage]
+
   # compare the user request timezone with all the ones in the database
   for validTimezone in listOfSupportedTimezones:
     if(validTimezone == request['timezone']):
@@ -599,8 +639,12 @@ def validateRegion(request, mongodb):
         break
 
     # get all timezones from config file
-    listOfRegions = config.getConfig("region")
-    
+    try:
+      listOfRegions = config.getConfig("region")
+    except Exception as e:
+      log.error("[RequestHandler] Error: {} in config.py. Please update config.py and run 'restartBoru'".format(str(e)))
+      return {False, "Failed to schedule class: Internal config.py Error."}
+
     for i in listOfRegions:
         for j in i.keys():
           if(j == environment):
@@ -616,6 +660,16 @@ def validateRegion(request, mongodb):
 
 def insertRequestToScheduledJobs(request, mongodb):
   mongodb.scheduledJobs.insert_one(request)
+
+def validateRegularExpression(info, regularExpression):
+  # create the regular expression
+  r = re.compile(regularExpression)
+  # do a full match dgainst it
+  if(r.fullmatch(info)):
+    return [True, regularExpression]
+  else:
+    return [False, regularExpression]
+
 
 # ---------
 # Timezones
