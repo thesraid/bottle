@@ -109,6 +109,8 @@ function goBack() {
 % for x in v:
 % if x['notificationType'] == 'prompt':
 <tr><td>{{x['notificationKey']}}</td><td><input type="text" name="{{x['notificationKey']}}"></td></tr>
+% elif x['notificationType'] == 'static':
+<tr><td>{{x['notificationKey']}}</td><td>{{x['recipients']}}</td></tr>
 
 
 

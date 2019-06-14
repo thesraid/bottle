@@ -1,6 +1,6 @@
 from slackclient import SlackClient
 import time
-slack_token = "GOES HERE"
+slack_token = "xoxp-657126721200-645718600226-657214282896-4241ac9af321f5f2a4071001975c55b9"
 sc = SlackClient(slack_token)
 
 def notify(recipient, job, message="Notification from Boru"):

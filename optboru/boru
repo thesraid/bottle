@@ -37,7 +37,7 @@ log.addHandler(JournalHandler())
 def main():
   # logging
   log.warning("[Scheduler] -----------------------------------------------------------------------------")
-  log.warning("[Scheduler] Starting...")
+  log.warning("[Scheduler] Starting Boru...")
   log.warning("[Scheduler] logging to /var/log/boru.log and journalctl")
   log.warning("[Scheduler] if this service keeps failing to start, run /opt/boru/boru for extra logging.")
   log.warning("[Scheduler] -----------------------------------------------------------------------------")
@@ -1281,13 +1281,12 @@ def addErrorInfoToJob(task, mongodb):
 
 def processNotification(notificationAction, job):
   try:
-    # there are 6 possible nofification actions:
-    #   1. scheduleNotification {might be tricky(maybe a flag to tell the notification run(cant be running every scheduler cycle))}
-    #   2. runningNotification
-    #   3. suspendNotification
-    #   4. resumeNotification
-    #   5. finishNotification
-    #   6. failNotification
+    # there are 5 possible nofification actions:
+    #   1. runningNotification
+    #   2. suspendNotification
+    #   3. resumeNotification
+    #   4. finishNotification
+    #   5. failNotification
 
     # there are 3 possible types for each notification:
     #   1. static - read the recipients and files directly from the database

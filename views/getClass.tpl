@@ -17,8 +17,13 @@ function goBack() {
 
 <select name = "course">
 %for doc in jOutput:
-%#<input type="radio" name="course" value="{{doc['courseName']}}"> {{doc['courseName']}}<br>
+%try:
+%# print (doc['courseName'])
 <option value="{{doc['courseName']}}"> {{doc['courseName']}}<br>
+% except:
+% pass
+% end
+% end
 % end
 </select>
 <input type="submit" value="Submit">

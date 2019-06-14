@@ -44,7 +44,8 @@ except Exception as e:
 datetimeFormat = "%Y-%m-%d"
 # ==============================================================================================
 
-def insertAwsClass(request):
+# Note: The 'request' is NOT a http request!
+def insertClass(request):
   # ----------------
   # mongo connection
   # ----------------
@@ -362,7 +363,11 @@ def validateCourse(request, mongodb):
   # list of course names
   listOfCourseNames = []
   for course in allCourses:
-    listOfCourseNames.append(course['courseName'])
+    try:
+      listOfCourseNames.append(course['courseName'])
+    except:
+      # if someone messes with the courses collection, and it does not have 'courseName' in all documents, skip over that document
+      pass
   # validating course
   if(request['course'] not in listOfCourseNames):
     return [False, listOfCourseNames]
@@ -384,19 +389,23 @@ def validateCourseAdditionalListParameters(request, mongodb, log):
 
   # appending the additional list parameters ant their validInput
   for course in allCourses:
-    if(course['courseName'] == requestCourse):
-      for additionalParam in course['cloudFormationParameters']:
-        # if it is some list, add it to array to be looked at to validate input
-        if((additionalParam['paramType'] == "list") or (additionalParam['paramType'] == "plugin-list")):
-          additionalCourseListParameters.append(additionalParam['paramKey'])
-          additionalCourseListParametersValidInputs.append(additionalParam['paramValidInput'])
-          # extract the user key[0] and value[1] (user input) for the list parameter
-          for item in request.items():
-            if(str(item[0]) == str(additionalParam['paramKey'])):
-              # key
-              userAdditionalCourseListParameters.append(str(item[0]))
-              # value (user input)
-              userAdditionalCourseListParametersInput.append(str(item[1]))
+    try:
+      if(course['courseName'] == requestCourse):
+        for additionalParam in course['cloudFormationParameters']:
+          # if it is some list, add it to array to be looked at to validate input
+          if((additionalParam['paramType'] == "list") or (additionalParam['paramType'] == "plugin-list")):
+            additionalCourseListParameters.append(additionalParam['paramKey'])
+            additionalCourseListParametersValidInputs.append(additionalParam['paramValidInput'])
+            # extract the user key[0] and value[1] (user input) for the list parameter
+            for item in request.items():
+              if(str(item[0]) == str(additionalParam['paramKey'])):
+                # key
+                userAdditionalCourseListParameters.append(str(item[0]))
+                # value (user input)
+                userAdditionalCourseListParametersInput.append(str(item[1]))
+    except:
+      # if someone messes with the courses collection, and it does not have 'courseName' in all documents, skip over that document
+      pass
 
   # validate the user input with the list of validInputs for that parameter
   for index in range(len(userAdditionalCourseListParametersInput)):
@@ -413,18 +422,22 @@ def validateNotificationParameters(request, mongodb, log):
   # validate
   # finding all course['notifications'] for the course specified in the request
   for course in allCourses:
-    if(course['courseName'] == requestCourse):
-      # looping through each notification looking only at prompt and list below
-      for notificationParam in course['notifications']:
-        # validating only list because static has no user input
-        if(notificationParam['notificationType'] == "list"):
-          # looping through every item in the request looking foa a matching 'notificationKey' on both
-          for requestParam in request:
-            # if a match is found, check if it is in a form of a list, not anything eles
-            if(str(notificationParam['notificationKey']) == str(requestParam)):
-              # validate
-              if(request[requestParam] not in notificationParam['validInput']):
-                return [False, str(requestParam), str(request[notificationParam['notificationKey']]), "Invalid input. Valid inputs: {}".format(str(notificationParam['validInput']))]
+    try:
+      if(course['courseName'] == requestCourse):
+        # looping through each notification looking only at prompt and list below
+        for notificationParam in course['notifications']:
+          # validating only list because static has no user input
+          if(notificationParam['notificationType'] == "list"):
+            # looping through every item in the request looking foa a matching 'notificationKey' on both
+            for requestParam in request:
+              # if a match is found, check if it is in a form of a list, not anything eles
+              if(str(notificationParam['notificationKey']) == str(requestParam)):
+                # validate
+                if(request[requestParam] not in notificationParam['validInput']):
+                  return [False, str(requestParam), str(request[notificationParam['notificationKey']]), "Invalid input. Valid inputs: {}".format(str(notificationParam['validInput']))]
+    except:
+      # if someone messes with the courses collection, and it does not have 'courseName' in all documents, skip over that document
+      pass
   # success, all validated
   return [True, "N/A", "N/A", "N/A"]
 
@@ -440,8 +453,12 @@ def appendNotificationsListToRequest(request, mongodb, log):
     # validate (oh god... this... works, good for now :( ugliest function ever... will change later if ihave time))
     # finding all course['notifications'] for the course specified in the request
     for course in allCourses:
-      if(course['courseName'] == requestCourse):
-        notificationListFromDb = course['notifications']
+      try:
+        if(course['courseName'] == requestCourse):
+          notificationListFromDb = course['notifications']
+      except:
+        # if someone messes with the courses collection, and it does not have 'courseName' in all documents, skip over that document
+        pass
     # modify the reciepients based on the request input that has allredy been validated
     # do it based on the key
     for notification in notificationListFromDb:
@@ -634,9 +651,13 @@ def validateRegion(request, mongodb):
     # get the environment form courses
     allCourses = mongodb.courses.find()
     for course in allCourses:
-      if(str(course['courseName']) == str(courseName)):
-        environment = course['environment']
-        break
+      try:
+        if(str(course['courseName']) == str(courseName)):
+          environment = course['environment']
+          break
+      except:
+        # if someone messes with the courses collection, and it does not have 'courseName' in all documents, skip over that document
+        pass
 
     # get all timezones from config file
     try:

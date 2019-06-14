@@ -19,7 +19,7 @@ import config
 logging.basicConfig(filename='/var/log/boru.log',level=logging.INFO, format="%(asctime)s: %(levelname)s: %(message)s")
 log = logging.getLogger('boru')
 
-def notify(recipient, job, message="Notification from Boru"):
+def notify(recipient, job, notificationAction="Notification from Boru"):
   if recipient == "boru":
     url = config.getConfig("slackBoruURL")
   else:
@@ -38,7 +38,7 @@ def notify(recipient, job, message="Notification from Boru"):
   # --------------------
   # Running Notification
   # --------------------
-  if(message == "runningNotification"):
+  if(notificationAction == "runningNotification"):
     customMessage = \
 "------\n\
 *Boru* :alien:\n\
@@ -54,7 +54,7 @@ Information:\n{}\n\n```".format(str(courseName), str(instructor), str(_id), str(
   # -----------------
   # Fail Notification
   # -----------------
-  elif(message == "failNotification"):
+  elif(notificationAction == "failNotification"):
     customMessage = \
 "------\n\
 *Boru* :space_invader:\n\
@@ -63,6 +63,18 @@ Information:\n{}\n\n```".format(str(courseName), str(instructor), str(_id), str(
 <https://boru.alien-training.com/viewJob/{}>\n\
 *Error Information:*\n{}\n\n\
 *CloudFormation Information:*\n{}\n\n".format(str(courseName), str(instructor), str(_id), str(errorInformation), str(information))
+    # send message
+    response = webhook(url, customMessage)
+    log.info("[slackWebHook] " + response.text)
+  else:
+    customMessage = \
+"------\n\
+*Boru* :alien:\n\
+------\n\n\
+*{}* class for *{}* has generated a " + notificationAction + ".\n\n\
+<https://boru.alien-training.com/viewJob/{}>\n\
+```Accounts:\n{}\n\n\
+Information:\n{}\n\n```".format(str(courseName), str(instructor), str(_id), str(subOrgs), str(information), str(errorInformation))
     # send message
     response = webhook(url, customMessage)
     log.info("[slackWebHook] " + response.text)

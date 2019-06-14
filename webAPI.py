@@ -783,7 +783,9 @@ def postAddSubOrgs(passIn="none"):
       try:
         requestListOfKeys.remove(item)
       except:
-        requestListOfKeys.remove(item)
+        log.info("[webApi] Failed to schedule class: Internal error: Failed to remove 'listOfAllWantedRequestKeys' from 'requestListOfKey'.")
+        error = "Failed to schedule class: Internal error: Failed to remove 'listOfAllWantedRequestKeys' from 'requestListOfKey'."
+        return {"error" : error}
     # check for leftovers
     if(requestListOfKeys):
       log.info("[webApi] Failed to schedule class: Parameters: '{}' provided by user should not be in the request.".format(requestListOfKeys))
@@ -921,6 +923,11 @@ def postScheduleClass(passIn="none"):
     for parameter in listOfRequiredParameters:
       # small 'buffer' named 'requestParameter' that takes in the parameter name and the input from the user.
       requestParameter = { parameter : jsonIn.get(parameter) }
+
+      # Check if the sender value provided is the same as the username
+      if parameter == "sender":
+        if user != jsonIn.get(parameter):
+          return {"error" : user + " cannot make requests for other users"}
       
       #1 - validate the parameter passed in by user is in present
       if((requestParameter.get(parameter) is None)  or (requestParameter.get(parameter) is "")):
@@ -947,7 +954,9 @@ def postScheduleClass(passIn="none"):
       try:
         requestListOfKeys.remove(item)
       except:
-        requestListOfKeys.remove(item)
+        log.info("[webApi] Failed to schedule class: Internal error: Failed to remove 'listOfAllWantedRequestKeys' from 'requestListOfKey'.")
+        error = "Failed to schedule class: Internal error: Failed to remove 'listOfAllWantedRequestKeys' from 'requestListOfKey'."
+        return {"error" : error}
     # check for leftovers
     if(requestListOfKeys):
       log.info("[webApi] Failed to schedule class: Parameters: '{}' provided by user should not be in the request.".format(requestListOfKeys))
@@ -960,7 +969,7 @@ def postScheduleClass(passIn="none"):
     # ----------------------------------------------------------------
 
     # hand off the request to RequestHandler.py
-    requestHandlerConfirmation = RequestHandler.insertAwsClass(requestInformation)
+    requestHandlerConfirmation = RequestHandler.insertClass(requestInformation)
     print (requestHandlerConfirmation)
     if (requestHandlerConfirmation == None) or (requestHandlerConfirmation == ""):
       log.error("Unexpected or empty response received from the RequestHandler.")
@@ -977,38 +986,38 @@ def postScheduleClass(passIn="none"):
 # --------------------
 # --------------------
 def getCourseAdditionalCloudFormationParameters(requestCourseName, listOfAdditionalCloudFormationParameters):
+
   # mongo setup
   mongoClient = pymongo.MongoClient()
   mongodb = mongoClient.boruDB
-  # getting all courses
-  allCourses = mongodb.courses.find()
+  # getting course
+  course = mongodb.courses.find({"courseName":str(requestCourseName)})
   # getting course name from request
   requestCourse = requestCourseName
   # appending the additional parameters to listOfAdditionalCloudFormationParameters
-  for course in allCourses:
-    if(course['courseName'] == requestCourse):
-      for additionalParam in course['cloudFormationParameters']:
-        # skip over the static parameters as they are not required by the user
-        if((additionalParam['paramType'] != "static") and (additionalParam['paramType'] != "plugin-static")):
-          listOfAdditionalCloudFormationParameters.append(additionalParam['paramKey'])
+  for item in course:
+    for additionalParam in item['cloudFormationParameters']:
+      # skip over the static parameters as they are not required by the user
+      if((additionalParam['paramType'] != "static") and (additionalParam['paramType'] != "plugin-static")):
+        listOfAdditionalCloudFormationParameters.append(additionalParam['paramKey'])
   # closing mongo connection
   mongoClient.close()
+
 
 def getCourseAdditionalNotificationParameters(requestCourseName, listOfAdditionalNotificationParameters):
   # mongo setup
   mongoClient = pymongo.MongoClient()
   mongodb = mongoClient.boruDB
-  # getting all courses
-  allCourses = mongodb.courses.find()
+  # getting course
+  course = mongodb.courses.find({"courseName":str(requestCourseName)})
   # getting course name from request
   requestCourse = requestCourseName
   # appending the additional parameters to listOfAdditionalNotificationParameters
-  for course in allCourses:
-    if(course['courseName'] == requestCourse):
-      for additionalParam in course['notifications']:
-        # skip over the static parameters as they are not required by the user (will be added in requestHandler)
-        if(additionalParam['notificationType'] != "static"):
-          listOfAdditionalNotificationParameters.append(additionalParam['notificationKey'])
+  for item in course:
+    for additionalParam in item['notifications']:
+      # skip over the static parameters as they are not required by the user (will be added in requestHandler)
+      if(additionalParam['notificationType'] != "static"):
+        listOfAdditionalNotificationParameters.append(additionalParam['notificationKey'])
   # closing mongo connection
   mongoClient.close()
 
@@ -1326,8 +1335,12 @@ def postWebScheduleClass():
   courses = json.loads(output)
   #print ("Courses: ", courses)
   for doc in courses:
-    if doc['courseName'] == courseName:
-      courseJSON = doc
+    try:
+      if doc['courseName'] == courseName:
+        courseJSON = doc
+    except:
+      pass
+    
   
   #outputConfig = collections("config")
   try:
