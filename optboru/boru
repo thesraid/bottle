@@ -11,8 +11,9 @@
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 # ----------------------------------------
-# version: 0.8.0
+# version: 0.8.5 - added failSuspend and failResume notifications after timeout in states: 'resuming' and 'suspending'
 # Boru.py - custom boru scheduler _/_\/_\_
+# The scheduler, the brain, the one, the white rabbit, the red pill, the most complex while loop in the world.
 # ----------------------------------------
 
 import time, pymongo, datetime, logging, threading, json, ast
@@ -280,28 +281,13 @@ def main():
           # step 1: change the subOrg status to 'failedToFinish'
           changeSubOrgStatus(task['subOrg'], mongodb, 'failedToFinish', log)
 
-          # step 2: increase the failedAttempts counter in scheduledJobs by 1
-          increaseJobFailedAttemptsCounter(task, mongodb, log)
+          # notification ====================================================================================================================
+          jobUpToDate = getJob(task['job_id'], mongodb)
+          processNotification("failFinishNotification", jobUpToDate)
+          # =================================================================================================================================
 
-          # step 3: check if failedAttempts is bigger than limit
-          response = checkJobFailedAttemptsCounterIsBigger(task, mongodb)
-
-          # if true, mark the job as failed
-          if(response):
-            # change the job status to 'failed'
-            changeJobStatus(task['job_id'], mongodb, 'failed', log)
-
-            # logging
-            log.warning("[Scheduler] Marking job_id: {} as 'Failed'.".format(str(task['job_id'])))
-
-            # delete the task as its lifecycle is finished
-            mongodb.tasks.delete_one({ "_id": task['_id'] })
-          else:
-            # retry
-            mongodb.tasks.update_one({ "_id": task['_id'] }, { "$set": { "taskStatus": "pending" } })
-
-            # logging
-            log.info("[Scheduler] Retrying 'finishSubOrg' task. task_id: {}".format(str(task['_id'])))
+          # step 2: delete the task as its lifecycle is finished
+          mongodb.tasks.delete_one({ "_id": task['_id'] })
 
         # ------------------------------------------------------------------------------------
         # combination 7: taskType == 'suspendSubOrg' && taskStatus == 'pending'
@@ -343,8 +329,6 @@ def main():
 
           addSubOrgToSuspendedSubOrgsInJob(task, mongodb, log)
 
-          removeFirstSuspendTimeFromJob(task, mongodb, log)
-
           # step 1: logging
           log.info("[Scheduler] Success. Suspended subOrg {}".format(str(task['subOrg'])))
 
@@ -359,6 +343,14 @@ def main():
 
           # step 1: logging
           log.error("[Scheduler] Failed to suspend subOrg {}".format(str(task['subOrg'])))
+
+          
+
+          # notification ====================================================================================================================
+          jobUpToDate = getJob(task['job_id'], mongodb)
+          processNotification("failSuspendNotification", jobUpToDate)
+          changeJobStatus(task['job_id'], mongodb, 'running', log)
+          # =================================================================================================================================
 
           # step 2: delete the task as its lifecycle is finished
           mongodb.tasks.delete_one({ "_id": task['_id'] })
@@ -405,8 +397,6 @@ def main():
 
           removeSubOrgToSuspendedSubOrgsInJob(task, mongodb, log)
 
-          removeFirstResumeTimeFromJob(task, mongodb, log)
-
           # step 1: logging
           log.info("[Scheduler] Success. Resumed subOrg {}".format(str(task['subOrg'])))
 
@@ -421,6 +411,12 @@ def main():
 
           # step 1: logging
           log.error("[Scheduler] Failed to resume subOrg {}".format(str(task['subOrg'])))
+
+          # notification ====================================================================================================================
+          jobUpToDate = getJob(task['job_id'], mongodb)
+          processNotification("failResumeNotification", jobUpToDate)
+          changeJobStatus(task['job_id'], mongodb, 'running', log)
+          # =================================================================================================================================
 
           # step 2: delete the task as its lifecycle is finished
           mongodb.tasks.delete_one({ "_id": task['_id'] })
@@ -539,6 +535,8 @@ def main():
                       createSuspendSubOrgTask(job, subOrg, mongodb, log)
                     # after the required amount of tasks is created, mark the job as 'suspending'
                     changeJobStatus(job['_id'], mongodb, 'suspending', log)
+                    # remove the last suspend time for the job
+                    removeLastSuspendTimeFromJob(job['_id'], mongodb, log)
                     break
 
         # -----------------------
@@ -556,6 +554,8 @@ def main():
                   createResumeSubOrgTask(job, subOrg, mongodb, log)
                 # after the required amount of tasks is created, mark the job as 'suspending'
                 changeJobStatus(job['_id'], mongodb, 'resuming', log)
+                # remove the last resume time for the job
+                removeLastResumeTimeFromJob(job['_id'], mongodb, log)
                 break
 
         # ------------------------
@@ -1033,25 +1033,25 @@ def removeSubOrgToSuspendedSubOrgsInJob(task, mongodb, log):
     if(str(job['_id']) == str(task['job_id'])):
       mongodb.scheduledJobs.update_one({ "_id": job['_id'] }, { "$pull": { "suspendedSubOrgs": str(task['subOrg'])} })
       # logging
-      log.info("[Scheduler] Adding subOrg: {} to 'suspendedSubOrgs'. job_id: {}".format(str(task['subOrg']), str(task['job_id'])))
+      log.info("[Scheduler] Removing subOrg: {} from 'suspendedSubOrgs'. job_id: {}".format(str(task['subOrg']), str(task['job_id'])))
       break
 
-def removeFirstResumeTimeFromJob(task, mongodb, log):
+def removeLastResumeTimeFromJob(jobID, mongodb, log):
   allJobs = mongodb.scheduledJobs.find()
   for job in allJobs:
-    if(str(job['_id']) == str(task['job_id'])):
-      mongodb.scheduledJobs.update_one({ "_id": ObjectId(job['_id']) }, { "$pop": { "listOfResumeTimes": -1 } })
+    if(str(job['_id']) == str(jobID)):
+      mongodb.scheduledJobs.update_one({ "_id": ObjectId(job['_id']) }, { "$pop": { "listOfResumeTimes": 1 } })
       # logging
-      log.info("[Scheduler] Removing first 'listOfResumeTimes'element from job_id: {}".format(str(task['job_id'])))
+      log.info("[Scheduler] Removing last 'listOfResumeTimes' element from job_id: {}".format(str(jobID)))
       break
 
-def removeFirstSuspendTimeFromJob(task, mongodb, log):
+def removeLastSuspendTimeFromJob(jobID, mongodb, log):
   allJobs = mongodb.scheduledJobs.find()
   for job in allJobs:
-    if(str(job['_id']) == str(task['job_id'])):
-      mongodb.scheduledJobs.update_one({ "_id": ObjectId(job['_id']) }, { "$pop": { "listOfSuspendTimes": -1 } })
+    if(str(job['_id']) == str(jobID)):
+      mongodb.scheduledJobs.update_one({ "_id": ObjectId(job['_id']) }, { "$pop": { "listOfSuspendTimes": 1 } })
       # logging
-      log.info("[Scheduler] Removing first 'listOfSuspendTimes'element from job_id: {}".format(str(task['job_id'])))
+      log.info("[Scheduler] Removing last 'listOfSuspendTimes' element from job_id: {}".format(str(jobID)))
       break
 
 # this function changes the status of a subOrg in 'subOrgs' collection
@@ -1281,12 +1281,19 @@ def addErrorInfoToJob(task, mongodb):
 
 def processNotification(notificationAction, job):
   try:
-    # there are 5 possible nofification actions:
+    # there are 5 possible notificationActions:
     #   1. runningNotification
     #   2. suspendNotification
     #   3. resumeNotification
     #   4. finishNotification
-    #   5. failNotification
+    #   5. failNotification - send when the whole job fails
+    #   6. failSuspendNotification - send when suspending timeout is reached
+    #   7. failResumeNotification - send when suspending timeout is reached
+
+    #   8. failFinishNotification - send when subOrg fails to finish
+    # Note: for the combination: taks['taskType'] == 'finishSubOrg' and taks['taskStatus'] == 'error',
+    # the notification['job'] passed into the notification script is only the subOrg name!
+    # Keep in mind when creating notifications with this combination.
 
     # there are 3 possible types for each notification:
     #   1. static - read the recipients and files directly from the database

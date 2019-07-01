@@ -37,7 +37,7 @@
 %import json
 % # Cycle through the json file as in comes in as a list
 %for doc in dbOutput:                   # for jsonOutput 1
-% heading = ((doc['startDate'])[:-9] + " | " + doc['course'] + " | " + doc['tag'] + " | " + doc['jobStatus'])
+% heading = ((doc['startDate'])[:-9] + " | " + doc['course'] + " | " + doc['instructor'] + " | " + doc['tag'] + " | " + doc['jobStatus'])
 % jobId = doc['_id']
 
 %if summary:
@@ -70,6 +70,14 @@
 </tr>
 
 %    elif (k == "errorInfo") and not summary:
+<tr><td>{{k}}</td><td>
+% for error in doc[k]:
+ {{error}}</br></br>
+% end
+</td>
+</tr>
+
+%    elif (k == "successInfo") and not summary:
 <tr><td>{{k}}</td><td>
 % for error in doc[k]:
  {{error}}</br></br>
@@ -114,6 +122,8 @@
 % # If the variable delete is true this indicates that this job can be deleted. 
 % if delete and not summary:
    <a href="../deleteJob/{{jobId}}" style="color: rgb(255,0,0)">Delete</a>
+% elif not summary:
+   <a href="../stopJob/{{jobId}}" style="color: rgb(255,0,0)">Stop Running Job</a>
 % end
 
 </div>
@@ -121,6 +131,7 @@
 % end                                   # end for dbOutput 1
     </p>
   </div>
+
 
 <!-- Script for collapsing the entries -->
 <script>

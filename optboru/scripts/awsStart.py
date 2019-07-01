@@ -503,7 +503,7 @@ def queryAllStacks(session, accountName, log):
     # Get all statck using boto3 list_stacks method
     allStacks = session.client("cloudformation").list_stacks()
     # logging
-    log.info("[awsStart | {}] Quering all stacks...".format(str(accountName)))
+    log.info("[awsStart | {}] Querying all stacks...".format(str(accountName)))
 
     # two arrays, one for stackNames and the other for their status, if all of the stacks have 'CREATE_COMPLETE' status, exit this method successfully
     stackNames = []

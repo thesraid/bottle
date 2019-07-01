@@ -24,6 +24,11 @@
 <body>
   
 %import json
+%try:
+%    user = request.auth[0]
+%  except:
+%    user = ""
+{{user}}
 
 <!-- View Running SubOrgs -->
   <div class="w3-container" id="services" style="margin-top:75px">

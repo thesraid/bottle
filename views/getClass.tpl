@@ -2,13 +2,7 @@
 % import json
 
 
-<button onclick="goBack()">Go Back</button>
 
-<script>
-function goBack() {
-  window.history.back();
-}
-</script>
 <div align="center">
 <form method="post">
 % jOutput = json.loads(output)

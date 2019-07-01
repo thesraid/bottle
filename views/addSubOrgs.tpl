@@ -1,3 +1,4 @@
+This does not create the subOrgs in your environment. This adds entries to the database only. 
 <form action="/addSubOrgs" method="post">
 <table>
 <tr><td>SubOrg Name:</td><td><input type="text" name="subOrgName"></td></tr>

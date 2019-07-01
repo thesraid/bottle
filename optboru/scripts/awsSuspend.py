@@ -76,6 +76,7 @@ def main(request):
     mongoClient.close()
     # update task status to error
     mongodb.tasks.update_one({ "_id": ObjectId(task_id) }, { "$set": { "taskStatus": "error" } })
+    return
 
   # ------------------------------------------------
   # Filter any terminated instances to prevent error
@@ -85,6 +86,8 @@ def main(request):
       filterInstances(listOfInstancesIdsRaw, listOfInstancesStates, listOfInstancesIdsFiltered, accountName, log)
   except Exception as e:
     log.error("[awsSuspend | {}] Failed to Filter EC2 Instances. Error: {}".format(str(accountName), str(e)))
+    mongodb.tasks.update_one({ "_id": ObjectId(task_id) }, { "$set": { "taskStatus": "error" } })
+    return
 
   # ------------------------------
   # Stopping all EC2 Instances Ids
@@ -144,12 +147,14 @@ def main(request):
       mongodb.tasks.update_one({ "_id": ObjectId(task_id) }, { "$set": { "taskStatus": "error" } })
       # closing mongo connection
       mongoClient.close()
+      return
   else:
     log.warning("[awsSuspend | {}] No Instances found to stop.".format(str(accountName)))
     # update task status to ready
     mongodb.tasks.update_one({ "_id": ObjectId(task_id) }, { "$set": { "taskStatus": "ready" } })
     # closing mongo connection
     mongoClient.close()
+    return
 
 # -----------------------------
 # Getting all EC2 Instances Ids

@@ -645,12 +645,13 @@ def extendEntry(passIn="none"):
   
   # Check if the logged in user can extend the job
   loggedin = whoami(request)
-  user = loggedin['user']
 
   # Get the name of the user who created the job
+  user = loggedin['user']
+
 
   job = viewEntry(myquery)
-  print (job)
+  #print (job)
   try:
     if job['error']:
       setContentType("json")
@@ -670,7 +671,7 @@ def extendEntry(passIn="none"):
   if ((user != sender) and (user not in admins)):
     return {"error" : "You are not allowed to extend this job as it is owned by " + sender}
   
-  # Find the job using the supplied _id to make sure that it exists and then to delete it
+  # Find the job using the supplied _id to make sure that it exists 
   try:
     dbOutput = list(mongodb.scheduledJobs.find(myquery))
     if dbOutput != []:
@@ -696,6 +697,124 @@ def extendEntry(passIn="none"):
         #mongodb.scheduledJobs.delete_one(myquery)
         newdate = (x['finishDate'] + timedelta(hours=3))
         # Update the finish date in the database for this job
+        mongodb.scheduledJobs.find_and_modify(myquery,{"$set": {"finishDate": newdate}} )
+    else:
+      # Close the database 
+      mongoClient.close()
+      log.warning("[webApi] Job " + _id + "not found")
+      return {"error" : "Job " + _id + " not found"}
+
+  except Exception as e:
+    log.error("[webApi] Error: {}".format(str(e)))
+    return {"error" : "{}".format(str(e))}
+  
+  # Close the database 
+  mongoClient.close()
+
+  # Send the success reply to the sender 
+  updateEntry = { "NewFinishTime" : newdate, "_id" : _id }
+  return dumps(updateEntry, indent=4, sort_keys=True, default=str)
+
+# ----------------
+# Stop a running class
+# ----------------
+@app.post('/api/stopJob')
+def stopEntry(passIn="none"):
+
+  # Set the output type to json as the REST API accepts json in and sends JSON out.
+  setContentType("json")
+  
+  try:
+    # Check to see if we have received a variable directly (someone in this .py called the function)
+    # If not then some one external made a REST API call to this function
+    if passIn == "none":
+      # Pulls in the full json sent to the endpoint
+      jsonIn = request.json
+    else:
+      jsonIn = passIn
+  except Exception :
+    # log
+    log.error("[webApi] Empty or invalid request {'_id' : 'jobID'} required")
+    return {"error" : "Empty or invalid request {'_id' : 'jobID'} required"}
+
+
+  # Verifies that JSON is present and contains an _id option
+  if not jsonIn:
+    #print("Empty or invalid request _id required")
+    return {"error" : "Empty or invalid request {'_id' : 'jobID'} required"}
+  else:
+    try:
+      _id = jsonIn.get("_id")
+    except Exception as e:
+      #print(str(e))
+      return {"error" : str(e)}
+  
+  if not _id:
+    #print("Invalid request {'_id' : 'jobID'} expected")
+    return {"error" : "Invalid request {'_id' : 'jobID'} expected"}
+
+  # mongo connection
+  try:
+    #print ("Connecting to DB....")
+    # setting up the mongo client
+    mongoClient = pymongo.MongoClient()
+    # specifying the mongo database = 'boruDB'
+    mongodb = mongoClient.boruDB
+  except Exception as e:
+    # log
+    #print("Failed to establish connection with mongo: {}".format(str(e)))
+    return {"error" : "Failed to establish connection with mongo: {}".format(str(e))}
+
+  # Take the _id received from the sender as a string (embedded in json) and convert to a Mongo Cursor object. 
+  # Create a query to find the _id in the database with the string provided by the sender.
+  try:
+    myquery = { "_id": ObjectId(_id) }
+  except Exception as e:
+    # log
+    #print(str(e))
+    return {"error" : (str(e))}
+
+  
+  # Check if the logged in user can extend the job
+  loggedin = whoami(request)
+
+  # Get the name of the user who created the job
+  user = loggedin['user']
+
+
+  job = viewEntry(myquery)
+  #print (job)
+  try:
+    if job['error']:
+      setContentType("json")
+      return {"error":"Unable to find this job. Please check the _id"}
+  except:
+    jsonList = json.loads(job)
+    jsonJob = jsonList[0]
+    sender = jsonJob['sender']
+
+  try:
+    admins = config.getConfig("admin")
+  except Exception as e:
+    setContentType("json")
+    return ({'error': "Unable to read admins list from config.py"})
+
+  # if the user is not the original sender of the job or an admin they can't delete it
+  if ((user != sender) and (user not in admins)):
+    return {"error" : "You are not allowed to extend this job as it is owned by " + sender}
+  
+  # Find the job using the supplied _id to make sure that it exists 
+  try:
+    dbOutput = list(mongodb.scheduledJobs.find(myquery))
+    if dbOutput != []:
+      for x in dbOutput:        
+        # Change the finish date to now. 
+        #mongodb.scheduledJobs.delete_one(myquery)
+        newdate = datetime.utcnow()
+        print (newdate)
+        # Update the finish date in the database for this job
+        # Also change state to running otherwise it won't finish it (only finishes running jobs)
+        mongodb.scheduledJobs.find_and_modify(myquery,{"$set": {"jobStatus": "running"}} )
         mongodb.scheduledJobs.find_and_modify(myquery,{"$set": {"finishDate": newdate}} )
     else:
       # Close the database 
@@ -1257,6 +1376,34 @@ def extendJob(jobId):
   return template('extendJob', jobId=output)
 
 # ----------------
+# Extend Job in the Database
+# ----------------
+@app.route('/stopJob/<jobId>')
+def stopJob(jobId):
+  
+  jobJSON = {"_id": jobId}
+  #print(type(jobJSON))sch
+  output = stopEntry(jobJSON)
+
+  if ((type(output) is dict)):
+    if (output['error']):
+      #print ("ERROR - EXIT", output['error'])
+      # Set content type to HTML before returning it
+      # This has to be set before the return as calling the REST API sets content_type to json
+      setContentType("html")
+      log.warning("[webApi] " + str(output['error']))
+      return template('error', error=output['error'])
+    #else:
+    #  Output = json.loads(output)
+    
+  # Set content type to HTML before returning it
+  # This has to be set at the end of this module as calling the REST API sets content_type to json
+  setContentType("html")
+
+  # Send output to extendJob.tpl
+  return template('stopJob', jobId=output)
+
+# ----------------
 # Add SubOrg Get
 # ----------------
 @app.route('/addSubOrgs', method='GET')
@@ -1346,6 +1493,7 @@ def postWebScheduleClass():
   try:
     region = config.getConfig("region")
     timezone = config.getConfig("timezone")
+    instructors = config.getConfig("instructors")
   except Exception as e:
     setContentType("html")
     return template('error', error="Error: " + str(e) + " in config.py")
@@ -1361,7 +1509,7 @@ def postWebScheduleClass():
   setContentType("html")
 
   # Send output to extendJob.tpl
-  return template('classParameters', output=courseJSON, region=region, timezone=timezone, user=user)
+  return template('classParameters', output=courseJSON, region=region, timezone=timezone, user=user, instructors=instructors)
 
   
 @app.route('/submitClass', method='POST')

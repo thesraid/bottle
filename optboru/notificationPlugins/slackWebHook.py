@@ -10,6 +10,7 @@
 import requests
 import json
 import logging
+import datetime
 
 # This is needed to import the boru python config file
 import sys
@@ -19,50 +20,111 @@ import config
 logging.basicConfig(filename='/var/log/boru.log',level=logging.INFO, format="%(asctime)s: %(levelname)s: %(message)s")
 log = logging.getLogger('boru')
 
-def notify(recipient, job, message="Notification from Boru"):
-  if recipient == "boru":
+def notify(recipient, job, notificationAction="Notification from Boru"):
+
+  # keys from the cloudFormation output that will not be included in the email
+  whiteListOutputKeys = ["AWSAccount"]
+
+  if recipient == "Boru":
     url = config.getConfig("slackBoruURL")
   else:
-    log.info("[slackWebHook] " + str(recipient) + "unknown")
+    log.error("[slackWebHook] " + str(recipient) + "unknown")
     exit()
-
 
   # info from job
   courseName = job['courseName']
   instructor = job['instructor']
+  tag = job['tag']
   subOrgs = job['subOrgs']
   information = job['successInfo']
   errorInformation = json.dumps(job['errorInfo'], indent=4, sort_keys=True, default=str)
   _id = job['_id']
 
-  # --------------------
+  # ----------------------------------------------------------------------------------------
   # Running Notification
-  # --------------------
-  if(message == "runningNotification"):
+  # ----------------------------------------------------------------------------------------
+  if(notificationAction == "runningNotification"):
     customMessage = \
 "------\n\
 *Boru* :alien:\n\
 ------\n\n\
-*{}* class for *{}* is now Running.\n\n\
+*{}* class: *{}* for *{}* is now Running.\n\n\
 <https://boru.alien-training.com/viewJob/{}>\n\
-```Accounts:\n{}\n\n\
-Information:\n{}\n\n```".format(str(courseName), str(instructor), str(_id), str(subOrgs), str(information), str(errorInformation))
+*Accounts:*\n\
+{}\n\n\
+\n*Account Information:*\n".format(str(courseName), str(tag), str(instructor), str(_id), str(subOrgs))
+    for i in job['successInfo']:
+      customMessage = customMessage + "\n*Account :* {}".format(str(i[0]).lower())
+      for j in i[1]:
+        if(str(j['OutputKey']) not in whiteListOutputKeys):
+          customMessage = customMessage + "\n*{} :* {}".format(str(j['OutputKey']), str(j['OutputValue']))
+      customMessage = customMessage + "\n"
+    customMessage = customMessage + "\n\n*Instructor :* {}".format(str(job['instructor']))
+    customMessage = customMessage + "\n*Region :* {}".format(str(job['region']))
+    customMessage = customMessage + "\n*Timezone :* {}".format(str(job['timezone']))
+
     # send message
     response = webhook(url, customMessage)
     log.info("[slackWebHook] " + response.text)
-  
-  # -----------------
+
+  # ----------------------------------------------------------------------------------------
+  # Suspend Notification
+  # ----------------------------------------------------------------------------------------
+  elif(notificationAction == "suspendNotification"):
+    customMessage = \
+"------\n\
+*Boru* :moon:\n\
+------\n\n\
+*{}* class: *{}* for *{}* is now Suspended. It will resume in the morning.\n\n\
+<https://boru.alien-training.com/viewJob/{}>\n".format(str(courseName), str(tag), str(instructor), str(_id))
+
+    # send message
+    response = webhook(url, customMessage)
+    log.info("[slackWebHook] " + response.text)
+
+  # ----------------------------------------------------------------------------------------
+  # Resume Notification
+  # ----------------------------------------------------------------------------------------
+  elif(notificationAction == "resumeNotification"):
+    customMessage = \
+"------\n\
+*Boru* :sunny:\n\
+------\n\n\
+*{}* class: *{}* for *{}* is back up Running.\n\n\
+<https://boru.alien-training.com/viewJob/{}>\n".format(str(courseName), str(tag), str(instructor), str(_id))
+
+    # send message
+    response = webhook(url, customMessage)
+    log.info("[slackWebHook] " + response.text)
+
+  # -------------------------------------------------------------------------------------
   # Fail Notification
-  # -----------------
-  elif(message == "failNotification"):
+  # -------------------------------------------------------------------------------------
+  elif(notificationAction == "failNotification"):
     customMessage = \
 "------\n\
 *Boru* :space_invader:\n\
 ------\n\n\
-*{}* class for *{}* Failed.\n\n\
-<https://boru.alien-training.com/viewJob/{}>\n\
-*Error Information:*\n{}\n\n\
-*CloudFormation Information:*\n{}\n\n".format(str(courseName), str(instructor), str(_id), str(errorInformation), str(information))
+*{}* class: *{}* for *{}* has Failed.\nManual Intervention is required.\n\n\
+<https://boru.alien-training.com/viewJob/{}>\n".format(str(courseName), str(tag), str(instructor), str(_id))
+    customMessage = customMessage + \
+"\n*Failed SubOrgs:*\n{}\n\n*Error Information:*\n\n{}".format(job['failedSubOrgs'], str(errorInformation))
+
+    # send message
+    response = webhook(url, customMessage)
+    log.info("[slackWebHook] " + response.text)
+
+  # -------------------------------------------------------------------------------------
+  # Other
+  # -------------------------------------------------------------------------------------
+  else:
+    customMessage = \
+"------\n\
+*Boru* :space_invader:\n\
+------\n\n\
+*{}* class: *{}* for *{}* has generated a *{}*.\n\n\
+<https://boru.alien-training.com/viewJob/{}>\n".format(str(courseName), str(tag), str(instructor), str(notificationAction), str(_id))
+
     # send message
     response = webhook(url, customMessage)
     log.info("[slackWebHook] " + response.text)
@@ -81,3 +143,5 @@ def webhook(url, body):
   response = s.post(url, headers=headers, data=data)
 
   return response
+
+

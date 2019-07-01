@@ -102,6 +102,15 @@ def insertClass(request):
     error = "Failed to schedule class: function appendNotificationsListToRequest in RequestHandler.py had an issue."
     return {"error": error}
 
+  response = validateInstructor(request, mongodb, log)
+  if(not response[0]):
+    # closing mongo connection
+    mongoClient.close()
+    # logging
+    log.warning("Failed to schedule class: Instructor '{}' is not valid. List of valid instructors: {}".format(str(request['instructor']), str(response[1])))
+    error = "Failed to schedule class: Instructor '{}' is not valid. List of valid instructors: {}".format(str(request['instructor']), str(response[1]))
+    return {"error": error}
+
   # validating timezone
   response = validateTimezone(request)
   if(not response[0]):
@@ -505,6 +514,22 @@ def validateAmountOfFreeSubOrgs(request, mongodb):
   else:
     return [True, amountOfFreeSubOrgsWithBuffer]
 
+def validateInstructor(request, mongodb, log):
+  # get all instructor from config file
+  try:
+    listOfInstructors = config.getConfig("instructors")
+  except Exception as e:
+    errorMessage = "[RequestHandler] Error: {} in config.py. Please update config.py and run 'restartBoru'".format(str(e))
+    log.warning(errorMessage)
+    return [False, errorMessage]
+  # compare the user request instructor with all the ones in the database
+  for validInstructor in listOfInstructors:
+    if(validInstructor == request['instructor']):
+      return [True, listOfInstructors]
+  # not found, return false
+  return [False, listOfInstructors]
+
+
 # uses the config file to get a list of supported timezones
 def validateTimezone(request):
   # get all timezones from config file
@@ -512,7 +537,7 @@ def validateTimezone(request):
     listOfSupportedTimezones = config.getConfig("timezone")
   except Exception as e:
     errorMessage = "[RequestHandler] Error: {} in config.py. Please update config.py and run 'restartBoru'".format(str(e))
-    log.error(errorMessage)
+    log.warning(errorMessage)
     return [False, errorMessage]
 
   # compare the user request timezone with all the ones in the database
